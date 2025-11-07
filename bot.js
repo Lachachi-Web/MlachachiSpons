@@ -1,45 +1,65 @@
 import TelegramBot from "node-telegram-bot-api";
 import fetch from "node-fetch";
 import express from 'express';
+import Database from 'sqlite-async'; // 👈 جديد: استيراد مكتبة قاعدة البيانات
 
 // ------------------------------------------------------------------
-// 1. قراءة المتغيرات من بيئة Render
+// 1. قراءة المتغيرات وإعداد البوت
 // ------------------------------------------------------------------
 const token = process.env.TELEGRAM_TOKEN; 
-const accountId = process.env.AD_ACCOUNT_ID; // يجب أن يحتوي على act_
 const accessToken = process.env.FB_ADS_TOKEN;
-const graphUrl = process.env.FB_GRAPH_URL; // https://graph.facebook.com/v20.0
+const graphUrl = process.env.FB_GRAPH_URL;
 
-// المتغيرات الخاصة بالـ Webhook والاستماع
 const port = process.env.PORT || 3000;
 const externalUrl = process.env.RENDER_EXTERNAL_URL;
 
 const app = express();
 app.use(express.json()); 
-
 const bot = new TelegramBot(token); 
 
-// ------------------------------------------------------------------
-// 2. دالة جلب الإحصائيات من Facebook API (المصححة)
-// ------------------------------------------------------------------
-async function getAdInsights() {
-    const fields = 'spend,impressions,cpc,ctr,actions';
-    
-    // *****************************************************************
-    // التصحيح: استخدام time_range_preset بدلاً من time_range
-    // *****************************************************************
-    const url = `${graphUrl}/${accountId}/insights?fields=${fields}&access_token=${accessToken}&time_range_preset=yesterday`;
+let db; // متغير لتخزين اتصال قاعدة البيانات
 
-    // ********* DEBUGGING STEP: طبع الرابط في سجلات Render *********
-    console.log(`DEBUG: Constructed URL is: ${url}`);
-    // *************************************************************
+// ------------------------------------------------------------------
+// 2. تهيئة قاعدة البيانات وإنشاء الجداول
+// ------------------------------------------------------------------
+async function initializeDatabase() {
+    try {
+        // الاتصال بقاعدة بيانات (سيتم إنشاء الملف في مسار المشروع)
+        db = await Database.open('clients.db');
+        
+        // إنشاء جدول Clients لتخزين بيانات العملاء: 
+        // telegram_id: هو المعرّف الفريد للعميل في تلغرام
+        // campaign_id: هو معرّف الحملة الإعلانية التي يتبعها
+        await db.run(`CREATE TABLE IF NOT EXISTS clients (
+            telegram_id TEXT PRIMARY KEY,
+            campaign_id TEXT NOT NULL
+        )`);
+        console.log('✅ تم تهيئة قاعدة البيانات وجدول العملاء بنجاح.');
+    } catch (error) {
+        console.error('❌ خطأ في تهيئة قاعدة البيانات:', error);
+    }
+}
+
+// البدء بتهيئة قاعدة البيانات فور تشغيل السيرفر
+initializeDatabase();
+
+// ------------------------------------------------------------------
+// 3. دالة جلب الإحصائيات من Facebook API (معدلة لاستقبال Campaign ID)
+// ------------------------------------------------------------------
+async function getAdInsights(campaignId) {
+    // نطلب حقول الإحصائيات
+    const fields = 'spend,impressions,cpc,ctr,actions,campaign_name';
+    
+    // بناء الرابط لطلب الإحصائيات *للحملة المحددة* وليس للحساب كله
+    const url = `${graphUrl}/${campaignId}/insights?fields=${fields}&access_token=${accessToken}&time_range_preset=yesterday`;
+
+    console.log(`DEBUG: Fetching insights for Campaign ID: ${campaignId}`);
 
     try {
         const response = await fetch(url);
         const data = await response.json();
         
         if (data.error) {
-            // خطأ تم إرجاعه من فيسبوك API
             const errorDetails = data.error.message || 'خطأ غير معروف';
             console.error("Facebook API Error Details:", errorDetails);
             return { 
@@ -48,63 +68,109 @@ async function getAdInsights() {
             };
         }
 
-        // إذا كان الرد ناجحاً لكن مصفوفة البيانات فارغة
         if (!data.data || data.data.length === 0) {
-             return { error: true, message: "تم الاتصال بنجاح، لكن لا توجد بيانات إعلانات في النطاق الزمني المحدد (الأمس)." };
+             return { error: true, message: "تم الاتصال بنجاح، لكن لا توجد بيانات إعلانات في النطاق الزمني المحدد (الأمس) لهذه الحملة." };
         }
         
         return data; 
         
     } catch (networkError) {
-        // خطأ في الاتصال بالشبكة أو في تحليل JSON
         console.error("Network or JSON parsing Error:", networkError);
         return { error: true, message: `حدث خطأ شبكة أو تحليل JSON: ${networkError.message}` };
     }
 }
 
 // ------------------------------------------------------------------
-// 3. أمر /stats
+// 4. أوامر البوت (المعدلة)
 // ------------------------------------------------------------------
-bot.onText(/\/stats/, async (msg) => {
-    
-    await bot.sendMessage(msg.chat.id, "جارٍ جلب إحصائيات حملاتك... 🔄");
-    
-    const insights = await getAdInsights();
 
-    // التحقق من وجود أي خطأ (شبكة أو فيسبوك)
-    if (insights.error) {
-        // إظهار رسالة الخطأ الدقيقة للمستخدم
-        return bot.sendMessage(msg.chat.id, `❌ فشل جلب البيانات:\n ${insights.message}`);
+// أمر إداري جديد لربط العميل بالحملة
+bot.onText(/\/setcampaign (.+) (\d+)/, async (msg, match) => {
+    // هذا الأمر يجب أن تستخدمه أنت لتسجيل عملائك
+    const chatId = msg.chat.id;
+    const campaignId = match[1].trim(); 
+    const targetTelegramId = match[2]; 
+
+    // تخزين الرابط في قاعدة البيانات
+    try {
+        await db.run(
+            `INSERT OR REPLACE INTO clients (telegram_id, campaign_id) VALUES (?, ?)`,
+            [targetTelegramId, campaignId]
+        );
+        
+        // رسالة تأكيد النجاح
+        bot.sendMessage(chatId, `✅ تم ربط حساب تلغرام (${targetTelegramId}) بنجاح مع حملة فيسبوك ID: \n*${campaignId}*`, { parse_mode: "Markdown" });
+        
+    } catch (error) {
+        console.error("Error setting campaign:", error);
+        bot.sendMessage(chatId, `❌ فشل في تسجيل الحملة في قاعدة البيانات. ${error.message}`);
+    }
+});
+
+bot.onText(/\/setcampaign/, (msg) => {
+    // رسالة مساعدة للأمر
+    bot.sendMessage(msg.chat.id, 
+        "ℹ️ **لربط عميل بحملة:**\n" +
+        "استخدم الصيغة التالية:\n" +
+        "`/setcampaign <Campaign ID> <Telegram User ID>`\n" +
+        "مثال: `/setcampaign 2385412497890098 12345678`\n" +
+        "*(تأكد من أنك تحصل على Campaign ID وليس Ad Account ID)*", 
+        { parse_mode: "Markdown" }
+    );
+});
+
+
+// أمر /stats المعدّل: يجلب الإحصائيات للحملة المسجلة للعميل
+bot.onText(/\/stats/, async (msg) => {
+    const chatId = msg.chat.id;
+    
+    // 1. البحث عن Campaign ID في قاعدة البيانات
+    const client = await db.get(`SELECT campaign_id FROM clients WHERE telegram_id = ?`, [chatId]);
+
+    if (!client) {
+        return bot.sendMessage(chatId, "⚠️ لم يتم ربطك بأي حملة إعلانية. الرجاء التواصل مع مدير النظام لتسجيل حملتك أولاً.");
     }
     
-    // ... (من هنا يتم تحليل الرد الناجح)
+    await bot.sendMessage(chatId, "جارٍ جلب إحصائيات حملتك المربوطة... 🔄");
+    
+    // 2. جلب البيانات باستخدام Campaign ID
+    const insights = await getAdInsights(client.campaign_id);
+
+    if (insights.error) {
+        return bot.sendMessage(chatId, `❌ فشل جلب البيانات:\n ${insights.message}`);
+    }
+    
+    // 3. تحليل الرد الناجح
     const stats = insights.data[0];
     const spend = parseFloat(stats.spend || '0').toFixed(2);
     const impressions = stats.impressions || '0';
     const cpc = parseFloat(stats.cpc || '0').toFixed(3);
     const dateStart = stats.date_start;
+    // نحصل على اسم الحملة من الرد
+    const campaignName = stats.campaign_name || "اسم الحملة غير متوفر";
+
 
     const reply = `
-    📊 **إحصائيات الأمس (${dateStart})**:
+    📊 **إحصائيات حملتك: ${campaignName}**
+    (لليوم السابق: ${dateStart})
     
     💰 **الإنفاق (Spend):** ${spend} €
     👁️ **مرات الظهور (Impressions):** ${impressions}
     💸 **تكلفة النقرة (CPC):** ${cpc} €
     
-    **✅ تم جلب البيانات بنجاح من Facebook API**
+    **✅ تم تحديث بياناتك بنجاح.**
     `;
     
-    bot.sendMessage(msg.chat.id, reply, { parse_mode: "Markdown" });
+    bot.sendMessage(chatId, reply, { parse_mode: "Markdown" });
 });
 
 bot.onText(/\/start/, (msg) => {
-  bot.sendMessage(msg.chat.id, "👋 أهلاً محمد، البوت جاهز. جرّب الآن أمر /stats ");
+  bot.sendMessage(msg.chat.id, "👋 أهلاً، هذا هو نظام تحديث إحصائيات حملتك. استخدم الأمر /stats لجلب إحصائيات اليوم السابق.");
 });
 
 // ------------------------------------------------------------------
-// 4. إعداد الـ Webhook وفتح المنفذ
+// 5. إعداد الـ Webhook وفتح المنفذ (المنطق الذي يعمل الآن)
 // ------------------------------------------------------------------
-
 app.post(`/bot${token}`, (req, res) => {
   bot.processUpdate(req.body);
   res.sendStatus(200); 
@@ -116,4 +182,3 @@ app.listen(port, () => {
     }
     console.log(`✅ البوت شغال ويستمع على المنفذ ${port} والـ Webhook مضبوط.`);
 });
-
