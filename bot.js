@@ -1,7 +1,10 @@
 import TelegramBot from "node-telegram-bot-api";
 import fetch from "node-fetch";
 import express from 'express';
-import Database from 'sqlite-async'; 
+// 🟢 التصحيح الحاسم: استخدام require لضمان عمل sqlite-async في بيئة ESM
+import { createRequire } from 'module';
+const require = createRequire(import.meta.url);
+const Database = require('sqlite-async'); 
 
 // ------------------------------------------------------------------
 // 1. قراءة المتغيرات وإعداد البوت
@@ -20,10 +23,11 @@ const bot = new TelegramBot(token);
 let db; 
 
 // ------------------------------------------------------------------
-// 2. تهيئة قاعدة البيانات وإنشاء الجداول
+// 2. تهيئة قاعدة البيانات وإنشاء الجداول (الآن ستعمل)
 // ------------------------------------------------------------------
 async function initializeDatabase() {
     try {
+        // 🟢 استخدام Database مباشرة بعد تصحيح الاستيراد
         db = await Database.open('clients.db'); 
         
         // إنشاء جدول Clients
