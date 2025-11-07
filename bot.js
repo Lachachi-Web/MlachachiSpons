@@ -1,7 +1,7 @@
 import TelegramBot from "node-telegram-bot-api";
 import fetch from "node-fetch";
 import express from 'express';
-import * as sqlite from 'sqlite-async'; // 🟢 التصحيح الأول: استيراد المكتبة كـ *sqlite
+import Database from 'sqlite-async'; // 🟢 تم التصحيح: استيراد مباشر لقاعدة البيانات
 
 // ------------------------------------------------------------------
 // 1. قراءة المتغيرات وإعداد البوت
@@ -24,8 +24,8 @@ let db; // متغير لتخزين اتصال قاعدة البيانات
 // ------------------------------------------------------------------
 async function initializeDatabase() {
     try {
-        // 🟢 التصحيح الثاني: استخدام sqlite.default.open
-        db = await sqlite.default.open('clients.db'); 
+        // 🟢 التصحيح الذي يحل مشكلة 'undefined (reading open)'
+        db = await Database.open('clients.db'); 
         
         // إنشاء جدول Clients
         await db.run(`CREATE TABLE IF NOT EXISTS clients (
@@ -34,9 +34,7 @@ async function initializeDatabase() {
         )`);
         console.log('✅ تم تهيئة قاعدة البيانات وجدول العملاء بنجاح.');
     } catch (error) {
-        console.error('❌ خطأ في تهيئة قاعدة البيانات:', error);
-        // هذا الخطأ سيمنع البوت من العمل إذا فشل (مهم)
-        // يمكننا إضافة خطوة لإعادة المحاولة هنا
+        console.error('❌ خطأ في تهيئة قاعدة البيانات:', error.message);
     }
 }
 
@@ -87,7 +85,7 @@ bot.onText(/\/setcampaign (.+) (\d+)/, async (msg, match) => {
     const targetTelegramId = match[2]; 
 
     if (!db) {
-         return bot.sendMessage(chatId, "❌ لم يتم إعداد قاعدة البيانات بعد. حاول مرة أخرى بعد 30 ثانية.");
+         return bot.sendMessage(chatId, "❌ لم يتم إعداد قاعدة البيانات بعد. يرجى الانتظار 30 ثانية والمحاولة.");
     }
 
     try {
@@ -107,79 +105,4 @@ bot.onText(/\/setcampaign (.+) (\d+)/, async (msg, match) => {
 
 bot.onText(/\/setcampaign/, (msg) => {
     // رسالة مساعدة للأمر
-    bot.sendMessage(msg.chat.id, 
-        "ℹ️ **لربط عميل بحملة:**\n" +
-        "استخدم الصيغة التالية:\n" +
-        "`/setcampaign <Campaign ID> <Telegram User ID>`\n" +
-        "مثال: `/setcampaign 2385412497890098 12345678`\n" +
-        "*(هذا الأمر لك كمدير فقط)*", 
-        { parse_mode: "Markdown" }
-    );
-});
-
-
-// أمر /stats المعدّل: يجلب الإحصائيات للحملة المسجلة للعميل
-bot.onText(/\/stats/, async (msg) => {
-    const chatId = msg.chat.id;
-    
-    if (!db) {
-         return bot.sendMessage(chatId, "❌ نظام العملاء غير جاهز بعد. يرجى الانتظار.");
-    }
-    
-    // 1. البحث عن Campaign ID في قاعدة البيانات
-    const client = await db.get(`SELECT campaign_id FROM clients WHERE telegram_id = ?`, [chatId]);
-
-    if (!client) {
-        return bot.sendMessage(chatId, "⚠️ لم يتم ربطك بأي حملة إعلانية. الرجاء التواصل مع مدير النظام لتسجيل حملتك أولاً.");
-    }
-    
-    await bot.sendMessage(chatId, "جارٍ جلب إحصائيات حملتك المربوطة... 🔄");
-    
-    // 2. جلب البيانات باستخدام Campaign ID
-    const insights = await getAdInsights(client.campaign_id);
-
-    if (insights.error) {
-        return bot.sendMessage(chatId, `❌ فشل جلب البيانات:\n ${insights.message}`);
-    }
-    
-    // 3. تحليل الرد الناجح
-    const stats = insights.data[0];
-    const spend = parseFloat(stats.spend || '0').toFixed(2);
-    const impressions = stats.impressions || '0';
-    const cpc = parseFloat(stats.cpc || '0').toFixed(3);
-    const dateStart = stats.date_start;
-    const campaignName = stats.campaign_name || "اسم الحملة غير متوفر";
-
-
-    const reply = `
-    📊 **إحصائيات حملتك: ${campaignName}**
-    (لليوم السابق: ${dateStart})
-    
-    💰 **الإنفاق (Spend):** ${spend} €
-    👁️ **مرات الظهور (Impressions):** ${impressions}
-    💸 **تكلفة النقرة (CPC):** ${cpc} €
-    
-    **✅ تم تحديث بياناتك بنجاح.**
-    `;
-    
-    bot.sendMessage(chatId, reply, { parse_mode: "Markdown" });
-});
-
-bot.onText(/\/start/, (msg) => {
-  bot.sendMessage(msg.chat.id, "👋 أهلاً، هذا هو نظام تحديث إحصائيات حملتك. استخدم الأمر /stats لجلب إحصائيات اليوم السابق.");
-});
-
-// ------------------------------------------------------------------
-// 5. إعداد الـ Webhook وفتح المنفذ
-// ------------------------------------------------------------------
-app.post(`/bot${token}`, (req, res) => {
-  bot.processUpdate(req.body);
-  res.sendStatus(200); 
-});
-
-app.listen(port, () => {
-    if (externalUrl) {
-        bot.setWebHook(`${externalUrl}/bot${token}`);
-    }
-    console.log(`✅ البوت شغال ويستمع على المنفذ ${port} والـ Webhook مضبوط.`);
-});
+    bot.sendMessage(msg.chat.
