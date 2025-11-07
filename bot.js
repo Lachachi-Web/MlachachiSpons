@@ -1,15 +1,19 @@
 import TelegramBot from "node-telegram-bot-api";
 import fetch from "node-fetch";
 import express from 'express';
-// 🟢 التصحيح الأخير: نعود إلى صيغة import Default مع اسم مستعار
-import sqlite from 'sqlite-async'; 
 
 // ------------------------------------------------------------------
-// 1. قراءة المتغيرات وإعداد البوت
+// 1. قراءة المتغيرات وإعداد البوت (مع إعداد الحملة يدوياً)
 // ------------------------------------------------------------------
 const token = process.env.TELEGRAM_TOKEN; 
 const accessToken = process.env.FB_ADS_TOKEN;
 const graphUrl = process.env.FB_GRAPH_URL;
+
+// 🟢 معلومات العميل الثابتة (للتجربة بدون قاعدة بيانات)
+// يرجى التأكد من أن هذا الـ ID هو رقمك في تيليغرام
+const FIXED_TELEGRAM_ID = 1621781485; 
+// يرجى وضع Campaign ID الذي تريد اختباره
+const FIXED_CAMPAIGN_ID = "120234222477170687"; 
 
 const port = process.env.PORT || 3000;
 const externalUrl = process.env.RENDER_EXTERNAL_URL;
@@ -18,30 +22,7 @@ const app = express();
 app.use(express.json()); 
 const bot = new TelegramBot(token); 
 
-let db; 
-
-// ------------------------------------------------------------------
-// 2. تهيئة قاعدة البيانات وإنشاء الجداول
-// ------------------------------------------------------------------
-async function initializeDatabase() {
-    try {
-        // 🟢 استخدام الدالة open مباشرة من الكائن المستورد (sqlite)
-        db = await sqlite.open('clients.db'); 
-        
-        // إنشاء جدول Clients
-        await db.run(`CREATE TABLE IF NOT EXISTS clients (
-            telegram_id TEXT PRIMARY KEY,
-            campaign_id TEXT NOT NULL
-        )`);
-        console.log('✅ تم تهيئة قاعدة البيانات وجدول العملاء بنجاح.');
-    } catch (error) {
-        // هذا قد يحدث إذا كان هناك خطأ في الاتصال بالقرص الصلب/الذاكرة في Render
-        console.error('❌ خطأ في تهيئة قاعدة البيانات:', error.message);
-    }
-}
-
-// البدء بتهيئة قاعدة البيانات فور تشغيل السيرفر
-initializeDatabase();
+// ❌ تم إزالة: كود تهيئة قاعدة البيانات
 
 // ------------------------------------------------------------------
 // 3. دالة جلب الإحصائيات من Facebook API
@@ -77,44 +58,20 @@ async function getAdInsights(campaignId) {
 }
 
 // ------------------------------------------------------------------
-// 4. أوامر البوت
+// 4. أوامر البوت (تم تعديلها لتستخدم الثوابت)
 // ------------------------------------------------------------------
 
-// أمر إداري لربط العميل بالحملة
-bot.onText(/\/setcampaign (.+) (\d+)/, async (msg, match) => {
-    const chatId = msg.chat.id;
-    const campaignId = match[1].trim(); 
-    const targetTelegramId = match[2]; 
-
-    if (!db) {
-         return bot.sendMessage(chatId, "❌ لم يتم إعداد قاعدة البيانات بعد. يرجى الانتظار 30 ثانية والمحاولة.");
-    }
-
-    try {
-        // تخزين الرابط في قاعدة البيانات
-        await db.run(
-            `INSERT OR REPLACE INTO clients (telegram_id, campaign_id) VALUES (?, ?)`,
-            [targetTelegramId, campaignId]
-        );
-        
-        bot.sendMessage(chatId, `✅ تم ربط حساب تلغرام (${targetTelegramId}) بنجاح مع حملة فيسبوك ID: \n*${campaignId}*`, { parse_mode: "Markdown" });
-        
-    } catch (error) {
-        console.error("Error setting campaign:", error);
-        bot.sendMessage(chatId, `❌ فشل في تسجيل الحملة في قاعدة البيانات: ${error.message}`);
-    }
-});
-
-// الأمر المساعد
+// أمر إداري لربط العميل بالحملة (تم إزالته أو تبسيطه لعدم وجود DB)
 bot.onText(/\/setcampaign/, (msg) => {
+    // 🟢 بما أنه لا توجد قاعدة بيانات، فقط نعرض رسالة المساعدة
     bot.sendMessage(msg.chat.id, 
         `
-        ℹ️ **لربط عميل بحملة (لك كمدير):**
+        ℹ️ **وضع الاختبار (Test Mode):**
         
-        استخدم الصيغة التالية:
-        \` /setcampaign <Campaign ID> <Telegram User ID>\`
+        **لا** توجد قاعدة بيانات متصلة الآن.
+        تم تعيين حملة الاختبار التالية تلقائيًا: \`${FIXED_CAMPAIGN_ID}\`
         
-        مثال: \`/setcampaign 2385412497890098 12345678\`
+        الرجاء استخدام الأمر ** /stats** الآن لاختبار اتصالك بفيسبوك.
         `
         , 
         { parse_mode: "Markdown" }
@@ -122,25 +79,19 @@ bot.onText(/\/setcampaign/, (msg) => {
 });
 
 
-// أمر /stats المعدّل: يجلب الإحصائيات للحملة المسجلة للعميل
+// أمر /stats المعدّل: يجلب الإحصائيات للحملة الثابتة
 bot.onText(/\/stats/, async (msg) => {
     const chatId = msg.chat.id;
     
-    if (!db) {
-         return bot.sendMessage(chatId, "❌ نظام العملاء غير جاهز بعد. يرجى الانتظار.");
-    }
-    
-    // 1. البحث عن Campaign ID في قاعدة البيانات
-    const client = await db.get(`SELECT campaign_id FROM clients WHERE telegram_id = ?`, [chatId]);
-
-    if (!client) {
-        return bot.sendMessage(chatId, "⚠️ لم يتم ربطك بأي حملة إعلانية. الرجاء التواصل مع مدير النظام لتسجيل حملتك أولاً.");
+    // 1. التحقق من تطابق ID العميل مع الـ ID الثابت
+    if (chatId.toString() !== FIXED_TELEGRAM_ID.toString()) {
+        return bot.sendMessage(chatId, "⚠️ أنت غير مُصرح لك في وضع الاختبار. يرجى استخدام حساب الـ ID: " + FIXED_TELEGRAM_ID);
     }
     
     await bot.sendMessage(chatId, "جارٍ جلب إحصائيات حملتك المربوطة... 🔄");
     
-    // 2. جلب البيانات باستخدام Campaign ID
-    const insights = await getAdInsights(client.campaign_id);
+    // 2. جلب البيانات باستخدام Campaign ID الثابت
+    const insights = await getAdInsights(FIXED_CAMPAIGN_ID);
 
     if (insights.error) {
         return bot.sendMessage(chatId, `❌ فشل جلب البيانات:\n ${insights.message}`);
@@ -170,7 +121,7 @@ bot.onText(/\/stats/, async (msg) => {
 });
 
 bot.onText(/\/start/, (msg) => {
-  bot.sendMessage(msg.chat.id, "👋 أهلاً، هذا هو نظام تحديث إحصائيات حملتك. استخدم الأمر /stats لجلب إحصائيات اليوم السابق.");
+  bot.sendMessage(msg.chat.id, "👋 أهلاً، هذا هو نظام تحديث إحصائيات حملتك (وضع الاختبار). استخدم الأمر /stats لجلب إحصائيات اليوم السابق.");
 });
 
 // ------------------------------------------------------------------
@@ -186,4 +137,3 @@ app.listen(port, () => {
         bot.setWebHook(`${externalUrl}/bot${token}`);
     }
     console.log(`✅ البوت شغال ويستمع على المنفذ ${port} والـ Webhook مضبوط.`);
-});
