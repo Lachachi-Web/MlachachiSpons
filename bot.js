@@ -1,11 +1,11 @@
 import TelegramBot from "node-telegram-bot-api";
 import fetch from "node-fetch";
 import express from 'express';
-// 🟢 نستخدم require لضمان عمل المكتبة في بيئة ESM.
+// 🟢 التصحيح الأخير: نستخدم require لضمان عمل المكتبة في بيئة ESM.
 import { createRequire } from 'module';
 const require = createRequire(import.meta.url);
-const sqliteAsync = require('sqlite-async'); 
-// ❌ تم إزالة السطر الخاطئ: const openDb = sqliteAsync.open;
+// 🟢 نقوم بتخزين الدالة الرئيسية للمكتبة في متغير اسمه openDatabase
+const openDatabase = require('sqlite-async').open;
 
 // ------------------------------------------------------------------
 // 1. قراءة المتغيرات وإعداد البوت
@@ -28,8 +28,8 @@ let db;
 // ------------------------------------------------------------------
 async function initializeDatabase() {
     try {
-        // 🟢 التصحيح الحاسم: نستخدم sqliteAsync.open مباشرة، بدون فصلها
-        db = await sqliteAsync.open('clients.db'); 
+        // 🟢 استخدام الدالة openDatabase التي تم استخراجها مباشرة
+        db = await openDatabase('clients.db'); 
         
         // إنشاء جدول Clients
         await db.run(`CREATE TABLE IF NOT EXISTS clients (
