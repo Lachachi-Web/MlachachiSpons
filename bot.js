@@ -20,16 +20,14 @@ const bot = new TelegramBot(token);
 let db; // متغير لتخزين اتصال قاعدة البيانات
 
 // ------------------------------------------------------------------
-// 2. تهيئة قاعدة البيانات وإنشاء الجداول
+// 2. تهيئة قاعدة البيانات وإنشاء الجداول (المصححة)
 // ------------------------------------------------------------------
 async function initializeDatabase() {
     try {
-        // الاتصال بقاعدة بيانات (سيتم إنشاء الملف في مسار المشروع)
-        db = await Database.open('clients.db');
+        // 🟢 التصحيح هنا: نستخدم Database.default.open
+        db = await Database.default.open('clients.db');
         
         // إنشاء جدول Clients لتخزين بيانات العملاء: 
-        // telegram_id: هو المعرّف الفريد للعميل في تلغرام
-        // campaign_id: هو معرّف الحملة الإعلانية التي يتبعها
         await db.run(`CREATE TABLE IF NOT EXISTS clients (
             telegram_id TEXT PRIMARY KEY,
             campaign_id TEXT NOT NULL
@@ -39,9 +37,6 @@ async function initializeDatabase() {
         console.error('❌ خطأ في تهيئة قاعدة البيانات:', error);
     }
 }
-
-// البدء بتهيئة قاعدة البيانات فور تشغيل السيرفر
-initializeDatabase();
 
 // ------------------------------------------------------------------
 // 3. دالة جلب الإحصائيات من Facebook API (معدلة لاستقبال Campaign ID)
@@ -182,3 +177,4 @@ app.listen(port, () => {
     }
     console.log(`✅ البوت شغال ويستمع على المنفذ ${port} والـ Webhook مضبوط.`);
 });
+
