@@ -11,7 +11,7 @@ const graphUrl = process.env.FB_GRAPH_URL;
 
 // 🟢 معلومات العميل الثابتة (للتجربة بدون قاعدة بيانات)
 // يرجى التأكد من أن هذا الـ ID هو رقمك في تيليغرام
-const FIXED_TELEGRAM_ID = 1621781485; 
+const FIXED_TELEGRAM_ID = "1621781485"; // تم التأكد من أنه كسلسلة نصية
 // يرجى وضع Campaign ID الذي تريد اختباره
 const FIXED_CAMPAIGN_ID = "120234222477170687"; 
 
@@ -61,7 +61,7 @@ async function getAdInsights(campaignId) {
 // 4. أوامر البوت (تم تعديلها لتستخدم الثوابت)
 // ------------------------------------------------------------------
 
-// أمر إداري لربط العميل بالحملة (تم إزالته أو تبسيطه لعدم وجود DB)
+// أمر إداري لربط العميل بالحملة (تم تبسيطه لعدم وجود DB)
 bot.onText(/\/setcampaign/, (msg) => {
     // 🟢 بما أنه لا توجد قاعدة بيانات، فقط نعرض رسالة المساعدة
     bot.sendMessage(msg.chat.id, 
@@ -84,7 +84,7 @@ bot.onText(/\/stats/, async (msg) => {
     const chatId = msg.chat.id;
     
     // 1. التحقق من تطابق ID العميل مع الـ ID الثابت
-    if (chatId.toString() !== FIXED_TELEGRAM_ID.toString()) {
+    if (chatId.toString() !== FIXED_TELEGRAM_ID) {
         return bot.sendMessage(chatId, "⚠️ أنت غير مُصرح لك في وضع الاختبار. يرجى استخدام حساب الـ ID: " + FIXED_TELEGRAM_ID);
     }
     
@@ -137,3 +137,4 @@ app.listen(port, () => {
         bot.setWebHook(`${externalUrl}/bot${token}`);
     }
     console.log(`✅ البوت شغال ويستمع على المنفذ ${port} والـ Webhook مضبوط.`);
+});
