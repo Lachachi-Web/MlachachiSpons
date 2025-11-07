@@ -1,12 +1,11 @@
 import TelegramBot from "node-telegram-bot-api";
 import fetch from "node-fetch";
 import express from 'express';
-// 🟢 التصحيح الحاسم: نستخدم require لضمان عمل المكتبة في بيئة ESM، ونستخرج دالة open مباشرة.
+// 🟢 نستخدم require لضمان عمل المكتبة في بيئة ESM.
 import { createRequire } from 'module';
 const require = createRequire(import.meta.url);
 const sqliteAsync = require('sqlite-async'); 
-// نحتاج لاستخراج دالة Open التي توفرها المكتبة
-const openDb = sqliteAsync.open;
+// ❌ تم إزالة السطر الخاطئ: const openDb = sqliteAsync.open;
 
 // ------------------------------------------------------------------
 // 1. قراءة المتغيرات وإعداد البوت
@@ -29,8 +28,8 @@ let db;
 // ------------------------------------------------------------------
 async function initializeDatabase() {
     try {
-        // 🟢 استخدام الدالة openDb التي استخرجناها للتو (التصحيح الحاسم)
-        db = await openDb('clients.db'); 
+        // 🟢 التصحيح الحاسم: نستخدم sqliteAsync.open مباشرة، بدون فصلها
+        db = await sqliteAsync.open('clients.db'); 
         
         // إنشاء جدول Clients
         await db.run(`CREATE TABLE IF NOT EXISTS clients (
@@ -39,6 +38,7 @@ async function initializeDatabase() {
         )`);
         console.log('✅ تم تهيئة قاعدة البيانات وجدول العملاء بنجاح.');
     } catch (error) {
+        // هذا قد يحدث إذا كان هناك خطأ في الاتصال بالقرص الصلب/الذاكرة في Render
         console.error('❌ خطأ في تهيئة قاعدة البيانات:', error.message);
     }
 }
