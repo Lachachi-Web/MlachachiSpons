@@ -1,7 +1,7 @@
 import TelegramBot from "node-telegram-bot-api";
 import fetch from "node-fetch";
 import express from 'express';
-import Database from 'sqlite-async'; // 🟢 تم التصحيح: استيراد مباشر لقاعدة البيانات
+import Database from 'sqlite-async'; 
 
 // ------------------------------------------------------------------
 // 1. قراءة المتغيرات وإعداد البوت
@@ -17,14 +17,13 @@ const app = express();
 app.use(express.json()); 
 const bot = new TelegramBot(token); 
 
-let db; // متغير لتخزين اتصال قاعدة البيانات
+let db; 
 
 // ------------------------------------------------------------------
-// 2. تهيئة قاعدة البيانات وإنشاء الجداول (تم التصحيح)
+// 2. تهيئة قاعدة البيانات وإنشاء الجداول
 // ------------------------------------------------------------------
 async function initializeDatabase() {
     try {
-        // 🟢 التصحيح الذي يحل مشكلة 'undefined (reading open)'
         db = await Database.open('clients.db'); 
         
         // إنشاء جدول Clients
@@ -75,7 +74,7 @@ async function getAdInsights(campaignId) {
 }
 
 // ------------------------------------------------------------------
-// 4. أوامر البوت (المعدلة)
+// 4. أوامر البوت
 // ------------------------------------------------------------------
 
 // أمر إداري لربط العميل بالحملة
@@ -105,4 +104,9 @@ bot.onText(/\/setcampaign (.+) (\d+)/, async (msg, match) => {
 
 bot.onText(/\/setcampaign/, (msg) => {
     // رسالة مساعدة للأمر
-    bot.sendMessage(msg.chat.
+    bot.sendMessage(msg.chat.id, 
+        "ℹ️ **لربط عميل بحملة:**\n" +
+        "استخدم الصيغة التالية:\n" +
+        "`/setcampaign <Campaign ID> <Telegram User ID>`\n" +
+        "مثال: `/setcampaign 2385412497890098 12345678`\n" +
+        "*(ه
