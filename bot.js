@@ -1,14 +1,14 @@
 import TelegramBot from "node-telegram-bot-api";
 import fetch from "node-fetch";
-import express from 'express'; // استيراد Express
+import express from 'express';
 
 // ------------------------------------------------------------------
-// 1. قراءة المتغيرات من بيئة Render (Environment Variables)
+// 1. قراءة المتغيرات من بيئة Render
 // ------------------------------------------------------------------
 const token = process.env.TELEGRAM_TOKEN; 
-const accountId = process.env.AD_ACCOUNT_ID;
+const accountId = process.env.AD_ACCOUNT_ID; // يجب أن يحتوي على act_
 const accessToken = process.env.FB_ADS_TOKEN;
-const graphUrl = process.env.FB_GRAPH_URL;
+const graphUrl = process.env.FB_GRAPH_URL; // https://graph.facebook.com/v20.0
 
 // المتغيرات الخاصة بالـ Webhook والاستماع
 const port = process.env.PORT || 3000;
@@ -17,46 +17,68 @@ const externalUrl = process.env.RENDER_EXTERNAL_URL;
 const app = express();
 app.use(express.json()); 
 
-// البوت بدون Polling، لأنه سيستقبل التحديثات عبر الـ Webhook
 const bot = new TelegramBot(token); 
 
 // ------------------------------------------------------------------
-// 2. دالة جلب الإحصائيات من Facebook API
+// 2. دالة جلب الإحصائيات من Facebook API (مع تحسين معالجة الأخطاء)
 // ------------------------------------------------------------------
 async function getAdInsights() {
-    // نطلب الإحصائيات لآخر يومين
     const timeRange = '{"since":"yesterday","until":"yesterday"}';
     const fields = 'spend,impressions,cpc,ctr,actions';
     
-    // بناء رابط الـ API
-    const url = `${graphUrl}/act_${accountId}/insights?fields=${fields}&access_token=${accessToken}&time_range=${timeRange}`;
+    // *****************************************************************
+    // التصحيح: بناء الرابط باستخدام accountId مباشرة (يجب أن يحتوي على act_)
+    // *****************************************************************
+    const url = `${graphUrl}/${accountId}/insights?fields=${fields}&access_token=${accessToken}&time_range=${timeRange}`;
+
+    // ********* DEBUGGING STEP: طبع الرابط في سجلات Render *********
+    console.log(`DEBUG: Constructed URL is: ${url}`);
+    // *************************************************************
 
     try {
         const response = await fetch(url);
         const data = await response.json();
-        return data;
-    } catch (error) {
-        console.error("Error fetching Facebook data:", error);
-        return { error: true, message: "حدث خطأ في الاتصال بالـ API." };
+        
+        if (data.error) {
+            // خطأ تم إرجاعه من فيسبوك API
+            const errorDetails = data.error.message || 'خطأ غير معروف';
+            console.error("Facebook API Error Details:", errorDetails);
+            return { 
+                error: true, 
+                message: `خطأ من فيسبوك: ${errorDetails} (Type: ${data.error.type || 'غير محدد'})`
+            };
+        }
+
+        // إذا كان الرد ناجحاً لكن مصفوفة البيانات فارغة
+        if (!data.data || data.data.length === 0) {
+             return { error: true, message: "تم الاتصال بنجاح، لكن لا توجد بيانات إعلانات في النطاق الزمني المحدد (الأمس)." };
+        }
+        
+        return data; 
+        
+    } catch (networkError) {
+        // خطأ في الاتصال بالشبكة أو في تحليل JSON
+        console.error("Network or JSON parsing Error:", networkError);
+        return { error: true, message: `حدث خطأ شبكة أو تحليل JSON: ${networkError.message}` };
     }
 }
 
 // ------------------------------------------------------------------
-// 3. أوامر البوت
+// 3. أمر /stats
 // ------------------------------------------------------------------
-
-// أمر /stats ليجلب البيانات ويختبر الربط
 bot.onText(/\/stats/, async (msg) => {
     
     await bot.sendMessage(msg.chat.id, "جارٍ جلب إحصائيات حملاتك... 🔄");
     
     const insights = await getAdInsights();
 
-    if (insights.error || !insights.data || insights.data.length === 0) {
-        return bot.sendMessage(msg.chat.id, `❌ فشل جلب البيانات: ${insights.message || 'يرجى التأكد من التوكن والمعرف.'}`);
+    // التحقق من وجود أي خطأ (شبكة أو فيسبوك)
+    if (insights.error) {
+        // إظهار رسالة الخطأ الدقيقة للمستخدم
+        return bot.sendMessage(msg.chat.id, `❌ فشل جلب البيانات:\n ${insights.message}`);
     }
     
-    // بيانات أولية من الرد 
+    // ... (من هنا يتم تحليل الرد الناجح)
     const stats = insights.data[0];
     const spend = parseFloat(stats.spend || '0').toFixed(2);
     const impressions = stats.impressions || '0';
@@ -81,18 +103,15 @@ bot.onText(/\/start/, (msg) => {
 });
 
 // ------------------------------------------------------------------
-// 4. إعداد الـ Webhook وفتح المنفذ (لحظة حل المشكلة!)
+// 4. إعداد الـ Webhook وفتح المنفذ
 // ------------------------------------------------------------------
 
-// استقبال تحديثات تيليغرام على الرابط المحدد
 app.post(`/bot${token}`, (req, res) => {
   bot.processUpdate(req.body);
-  res.sendStatus(200); // الرد السريع ضروري لتيليغرام
+  res.sendStatus(200); 
 });
 
-// تشغيل الاستماع على المنفذ (يحل مشكلة Port scan timeout)
 app.listen(port, () => {
-    // إعداد الـ Webhook لتيليغرام ليستخدم الرابط الخارجي لـ Render
     if (externalUrl) {
         bot.setWebHook(`${externalUrl}/bot${token}`);
     }
