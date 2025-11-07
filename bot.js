@@ -20,16 +20,15 @@ app.use(express.json());
 const bot = new TelegramBot(token); 
 
 // ------------------------------------------------------------------
-// 2. دالة جلب الإحصائيات من Facebook API (مع تحسين معالجة الأخطاء)
+// 2. دالة جلب الإحصائيات من Facebook API (المصححة)
 // ------------------------------------------------------------------
 async function getAdInsights() {
-    const timeRange = '{"since":"yesterday","until":"yesterday"}';
     const fields = 'spend,impressions,cpc,ctr,actions';
     
     // *****************************************************************
-    // التصحيح: بناء الرابط باستخدام accountId مباشرة (يجب أن يحتوي على act_)
+    // التصحيح: استخدام time_range_preset بدلاً من time_range
     // *****************************************************************
-    const url = `${graphUrl}/${accountId}/insights?fields=${fields}&access_token=${accessToken}&time_range=${timeRange}`;
+    const url = `${graphUrl}/${accountId}/insights?fields=${fields}&access_token=${accessToken}&time_range_preset=yesterday`;
 
     // ********* DEBUGGING STEP: طبع الرابط في سجلات Render *********
     console.log(`DEBUG: Constructed URL is: ${url}`);
@@ -117,3 +116,4 @@ app.listen(port, () => {
     }
     console.log(`✅ البوت شغال ويستمع على المنفذ ${port} والـ Webhook مضبوط.`);
 });
+
