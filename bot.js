@@ -1,7 +1,7 @@
 import TelegramBot from "node-telegram-bot-api";
 import fetch from "node-fetch";
 import express from 'express';
-import Database from 'sqlite-async'; // 👈 جديد: استيراد مكتبة قاعدة البيانات
+import * as sqlite from 'sqlite-async'; // 🟢 التصحيح الأول: استيراد المكتبة كـ *sqlite
 
 // ------------------------------------------------------------------
 // 1. قراءة المتغيرات وإعداد البوت
@@ -20,14 +20,14 @@ const bot = new TelegramBot(token);
 let db; // متغير لتخزين اتصال قاعدة البيانات
 
 // ------------------------------------------------------------------
-// 2. تهيئة قاعدة البيانات وإنشاء الجداول (المصححة)
+// 2. تهيئة قاعدة البيانات وإنشاء الجداول (تم التصحيح)
 // ------------------------------------------------------------------
 async function initializeDatabase() {
     try {
-        // 🟢 التصحيح هنا: نستخدم Database.default.open
-        db = await Database.default.open('clients.db');
+        // 🟢 التصحيح الثاني: استخدام sqlite.default.open
+        db = await sqlite.default.open('clients.db'); 
         
-        // إنشاء جدول Clients لتخزين بيانات العملاء: 
+        // إنشاء جدول Clients
         await db.run(`CREATE TABLE IF NOT EXISTS clients (
             telegram_id TEXT PRIMARY KEY,
             campaign_id TEXT NOT NULL
@@ -35,19 +35,20 @@ async function initializeDatabase() {
         console.log('✅ تم تهيئة قاعدة البيانات وجدول العملاء بنجاح.');
     } catch (error) {
         console.error('❌ خطأ في تهيئة قاعدة البيانات:', error);
+        // هذا الخطأ سيمنع البوت من العمل إذا فشل (مهم)
+        // يمكننا إضافة خطوة لإعادة المحاولة هنا
     }
 }
 
+// البدء بتهيئة قاعدة البيانات فور تشغيل السيرفر
+initializeDatabase();
+
 // ------------------------------------------------------------------
-// 3. دالة جلب الإحصائيات من Facebook API (معدلة لاستقبال Campaign ID)
+// 3. دالة جلب الإحصائيات من Facebook API
 // ------------------------------------------------------------------
 async function getAdInsights(campaignId) {
-    // نطلب حقول الإحصائيات
     const fields = 'spend,impressions,cpc,ctr,actions,campaign_name';
-    
-    // بناء الرابط لطلب الإحصائيات *للحملة المحددة* وليس للحساب كله
     const url = `${graphUrl}/${campaignId}/insights?fields=${fields}&access_token=${accessToken}&time_range_preset=yesterday`;
-
     console.log(`DEBUG: Fetching insights for Campaign ID: ${campaignId}`);
 
     try {
@@ -79,26 +80,28 @@ async function getAdInsights(campaignId) {
 // 4. أوامر البوت (المعدلة)
 // ------------------------------------------------------------------
 
-// أمر إداري جديد لربط العميل بالحملة
+// أمر إداري لربط العميل بالحملة
 bot.onText(/\/setcampaign (.+) (\d+)/, async (msg, match) => {
-    // هذا الأمر يجب أن تستخدمه أنت لتسجيل عملائك
     const chatId = msg.chat.id;
     const campaignId = match[1].trim(); 
     const targetTelegramId = match[2]; 
 
-    // تخزين الرابط في قاعدة البيانات
+    if (!db) {
+         return bot.sendMessage(chatId, "❌ لم يتم إعداد قاعدة البيانات بعد. حاول مرة أخرى بعد 30 ثانية.");
+    }
+
     try {
+        // تخزين الرابط في قاعدة البيانات
         await db.run(
             `INSERT OR REPLACE INTO clients (telegram_id, campaign_id) VALUES (?, ?)`,
             [targetTelegramId, campaignId]
         );
         
-        // رسالة تأكيد النجاح
         bot.sendMessage(chatId, `✅ تم ربط حساب تلغرام (${targetTelegramId}) بنجاح مع حملة فيسبوك ID: \n*${campaignId}*`, { parse_mode: "Markdown" });
         
     } catch (error) {
         console.error("Error setting campaign:", error);
-        bot.sendMessage(chatId, `❌ فشل في تسجيل الحملة في قاعدة البيانات. ${error.message}`);
+        bot.sendMessage(chatId, `❌ فشل في تسجيل الحملة في قاعدة البيانات: ${error.message}`);
     }
 });
 
@@ -109,7 +112,7 @@ bot.onText(/\/setcampaign/, (msg) => {
         "استخدم الصيغة التالية:\n" +
         "`/setcampaign <Campaign ID> <Telegram User ID>`\n" +
         "مثال: `/setcampaign 2385412497890098 12345678`\n" +
-        "*(تأكد من أنك تحصل على Campaign ID وليس Ad Account ID)*", 
+        "*(هذا الأمر لك كمدير فقط)*", 
         { parse_mode: "Markdown" }
     );
 });
@@ -118,6 +121,10 @@ bot.onText(/\/setcampaign/, (msg) => {
 // أمر /stats المعدّل: يجلب الإحصائيات للحملة المسجلة للعميل
 bot.onText(/\/stats/, async (msg) => {
     const chatId = msg.chat.id;
+    
+    if (!db) {
+         return bot.sendMessage(chatId, "❌ نظام العملاء غير جاهز بعد. يرجى الانتظار.");
+    }
     
     // 1. البحث عن Campaign ID في قاعدة البيانات
     const client = await db.get(`SELECT campaign_id FROM clients WHERE telegram_id = ?`, [chatId]);
@@ -141,7 +148,6 @@ bot.onText(/\/stats/, async (msg) => {
     const impressions = stats.impressions || '0';
     const cpc = parseFloat(stats.cpc || '0').toFixed(3);
     const dateStart = stats.date_start;
-    // نحصل على اسم الحملة من الرد
     const campaignName = stats.campaign_name || "اسم الحملة غير متوفر";
 
 
@@ -164,7 +170,7 @@ bot.onText(/\/start/, (msg) => {
 });
 
 // ------------------------------------------------------------------
-// 5. إعداد الـ Webhook وفتح المنفذ (المنطق الذي يعمل الآن)
+// 5. إعداد الـ Webhook وفتح المنفذ
 // ------------------------------------------------------------------
 app.post(`/bot${token}`, (req, res) => {
   bot.processUpdate(req.body);
@@ -177,4 +183,3 @@ app.listen(port, () => {
     }
     console.log(`✅ البوت شغال ويستمع على المنفذ ${port} والـ Webhook مضبوط.`);
 });
-
