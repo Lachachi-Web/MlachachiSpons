@@ -20,6 +20,28 @@ const bot = new TelegramBot(token);
 const app = express();
 app.use(express.json()); 
 
+// 👑 تعريف رقم معرف المدير (تم تأكيده: 1621781485import TelegramBot from "node-telegram-bot-api";
+import fetch from "node-fetch";
+import express from 'express';
+// 🟢 استيراد مكتبة PostgreSQL
+import pkg from 'pg';
+const { Client } = pkg;
+
+// ------------------------------------------------------------------
+// 1. المتغيرات والتهيئة
+// ------------------------------------------------------------------
+const token = process.env.TELEGRAM_TOKEN; 
+const accessToken = process.env.FB_ADS_TOKEN;
+const graphUrl = process.env.FB_GRAPH_URL || "https://graph.facebook.com/v20.0";
+const adAccountId = process.env.FB_AD_ACCOUNT_ID;
+
+const port = process.env.PORT || 3000;
+const externalUrl = process.env.RAILWAY_STATIC_URL; // استخدام متغير Railway
+
+const bot = new TelegramBot(token); 
+const app = express();
+app.use(express.json()); 
+
 // 👑 تعريف رقم معرف المدير (غيّره إلى رقمك الخاص)
 const ADMIN_ID = '1621781485'; // ⬅️ **غيّر هذا الرقم إلى رقم Telegram ID الخاص بك (مُحاط بعلامتي اقتباس)**
 const DEFAULT_CURRENCY = 'دج'; // العملة الافتراضية
@@ -441,3 +463,4 @@ app.listen(port, () => {
 // ⬅️ هذا القوس يغلق دالة initializeDatabase
 // تم وضعه هنا لضمان الاكتمال
 }
+
