@@ -21,7 +21,7 @@ const app = express();
 app.use(express.json()); 
 
 // 👑 تعريف رقم معرف المدير (غيّره إلى رقمك الخاص)
-const ADMIN_ID = '1621781485'; // ⬅️ **غيّر هذا الرقم إلى رقم Telegram ID الخاص بك**
+const ADMIN_ID = '1621781485'; // ⬅️ **غيّر هذا الرقم إلى رقم Telegram ID الخاص بك (مُحاط بعلامتي اقتباس)**
 const DEFAULT_CURRENCY = 'دج'; // العملة الافتراضية
 
 // ------------------------------------------------------------------
@@ -32,7 +32,7 @@ const dbClient = new Client({
     host: process.env.PGHOST,
     database: process.env.PGDATABASE,
     password: process.env.PGPASSWORD,
-    port: 5432,
+    port: process.env.PGPORT || 5432, // استخدام PGPORT إذا كان معرّفاً
     ssl: { rejectUnauthorized: false } // ضروري لبعض بيئات الاستضافة مثل Railway
 });
 
@@ -161,7 +161,7 @@ const adminKeyboard = {
 // 6. أوامر البوت
 // ------------------------------------------------------------------
 
-// أمر /start لتعيين لوحة المفاتيح
+// أمر /start لتعيين لوحة المفاتيح (تم التأكد من صحة الدالة)
 bot.onText(/\/start|العودة للقائمة الرئيسية/, (msg) => {
     const chatId = msg.chat.id.toString();
     logActivity(chatId, '/start');
@@ -437,3 +437,7 @@ app.listen(port, () => {
     }
     console.log(`✅ البوت شغال ويستمع على المنفذ ${port} والـ Webhook مضبوط.`);
 });
+
+// ⬅️ هذا القوس يغلق دالة initializeDatabase
+// تم وضعه هنا لضمان الاكتمال
+}
