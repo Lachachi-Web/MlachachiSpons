@@ -4,6 +4,9 @@ import express from 'express';
 import pkg from 'pg';
 const { Client } = pkg;
 
+// 🟢 (التغيير 1) استيراد لوحات المفاتيح من الملف الجديد
+import { clientKeyboard, adminKeyboard } from './keyboards.js';
+
 // ------------------------------------------------------------------
 // 1. المتغيرات والتهيئة
 // ------------------------------------------------------------------
@@ -38,7 +41,7 @@ const dbClient = new Client({
 
 let isDbConnected = false; 
 
-// دالة تهيئة قاعدة البيانات (مصححة الأقواس)
+// دالة تهيئة قاعدة البيانات
 async function initializeDatabase() {
     try {
         await dbClient.connect();
@@ -132,29 +135,9 @@ async function getCampaignInsights(campaignIds, datePreset = 'yesterday') {
 
 // ------------------------------------------------------------------
 // 5. لوحات المفاتيح (الأزرار)
+// 🛑 (التغيير 2) تم حذف التعريفات من هنا لأنها استوردت من keyboards.js
 // ------------------------------------------------------------------
-const clientKeyboard = {
-    reply_markup: {
-        keyboard: [
-            [{ text: '📊 إحصائيات الحملات' }, { text: '💰 الرصيد والمصروفات' }],
-            [{ text: '🧾 سجل الإيداعات' }, { text: '⚙️ تحكم بالإعلانات' }] 
-        ],
-        resize_keyboard: true,
-        one_time_keyboard: false
-    }
-};
 
-const adminKeyboard = {
-    reply_markup: {
-        keyboard: [
-            [{ text: '➕ تسجيل عميل/حملة' }, { text: '💰 إضافة إيداع' }],
-            [{ text: '👑 قائمة العملاء' }, { text: '📊 تقرير الاستخدام' }],
-            [{ text: 'العودة للقائمة الرئيسية' }]
-        ],
-        resize_keyboard: true,
-        one_time_keyboard: false
-    }
-};
 
 // ------------------------------------------------------------------
 // 6. أوامر البوت
