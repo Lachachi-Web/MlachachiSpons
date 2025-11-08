@@ -38,6 +38,7 @@ const dbClient = new Client({
 
 let isDbConnected = false; 
 
+// دالة تهيئة قاعدة البيانات (مصححة الأقواس)
 async function initializeDatabase() {
     try {
         await dbClient.connect();
@@ -111,3 +112,133 @@ async function getCampaignInsights(campaignIds, datePreset = 'yesterday') {
     try {
         const response = await fetch(url);
         const data = await response.json();
+        
+        if (data.error) {
+            const errorDetails = data.error.message || 'خطأ غير معروف';
+            console.error("Facebook API Error Details:", errorDetails);
+            return { 
+                error: true, 
+                message: `خطأ من فيسبوك: ${errorDetails} (Type: ${data.error.type || 'غير محدد'})`
+            };
+        }
+
+        return data.data || []; 
+        
+    } catch (networkError) {
+        console.error("Network or JSON parsing Error:", networkError);
+        return { error: true, message: `حدث خطأ شبكة أو تحليل JSON: ${networkError.message}` };
+    }
+}
+
+// ------------------------------------------------------------------
+// 5. لوحات المفاتيح (الأزرار)
+// ------------------------------------------------------------------
+const clientKeyboard = {
+    reply_markup: {
+        keyboard: [
+            [{ text: '📊 إحصائيات الحملات' }, { text: '💰 الرصيد والمصروفات' }],
+            [{ text: '🧾 سجل الإيداعات' }, { text: '⚙️ تحكم بالإعلانات' }] 
+        ],
+        resize_keyboard: true,
+        one_time_keyboard: false
+    }
+};
+
+const adminKeyboard = {
+    reply_markup: {
+        keyboard: [
+            [{ text: '➕ تسجيل عميل/حملة' }, { text: '💰 إضافة إيداع' }],
+            [{ text: '👑 قائمة العملاء' }, { text: '📊 تقرير الاستخدام' }],
+            [{ text: 'العودة للقائمة الرئيسية' }]
+        ],
+        resize_keyboard: true,
+        one_time_keyboard: false
+    }
+};
+
+// ------------------------------------------------------------------
+// 6. أوامر البوت
+// ------------------------------------------------------------------
+
+// أمر /start لتعيين لوحة المفاتيح
+bot.onText(/\/start|العودة للقائمة الرئيسية/, (msg) => {
+    const chatId = msg.chat.id.toString();
+    logActivity(chatId, '/start');
+    
+    // 👑 اختبار المدير
+    if (chatId === ADMIN_ID) {
+        return bot.sendMessage(chatId, "👋 مرحباً بك أيها المدير. يمكنك استخدام لوحة التحكم الإدارية:", adminKeyboard);
+    }
+    
+    // 👤 لوحة مفاتيح العميل
+    bot.sendMessage(chatId, "👋 أهلاً بك! يرجى اختيار الإجراء المطلوب من القائمة أدناه:", clientKeyboard);
+});
+
+
+// ------------------------------------------------------------------
+// 6.1. أوامر العميل (الإحصائيات المجمعة)
+// ------------------------------------------------------------------
+
+bot.onText(/📊 إحصائيات الحملات|\/stats/, async (msg) => {
+    const chatId = msg.chat.id.toString();
+    logActivity(chatId, '/stats');
+    
+    if (!isDbConnected) {
+         return bot.sendMessage(chatId, "❌ نظام قاعدة البيانات غير جاهز حالياً. يرجى المحاولة لاحقاً.");
+    }
+    
+    await bot.sendMessage(chatId, "جارٍ جلب إحصائيات الأمس لجميع حملاتك الإعلانية... 🔄");
+
+    try {
+        // 1. جلب كل الـ Campaigns المرتبطة بالعميل
+        const clientCampaigns = await dbClient.query(
+            `SELECT campaign_id, campaign_alias FROM clients WHERE telegram_id = $1`,
+            [chatId]
+        );
+
+        if (clientCampaigns.rows.length === 0) {
+            return bot.sendMessage(chatId, "⚠️ لم يتم ربطك بأي حملة إعلانية. الرجاء التواصل مع مدير النظام.");
+        }
+
+        const campaignIds = clientCampaigns.rows.map(row => row.campaign_id);
+        
+        // 2. جلب الإحصائيات من فيسبوك
+        const insightsData = await getCampaignInsights(campaignIds, 'yesterday');
+        
+        if (insightsData.error) {
+            return bot.sendMessage(chatId, `❌ فشل جلب البيانات:\n ${insightsData.message}`);
+        }
+        
+        // 3. تحليل وتجميع النتائج
+        let totalSpend = 0;
+        let totalActions = 0;
+        let replyParts = [];
+
+        insightsData.forEach(stats => {
+            const spend = parseFloat(stats.spend || '0');
+            const impressions = stats.impressions || '0';
+            // البحث عن المبيعات (نفرض أن نوع الأكشن هو 'purchase')
+            const actions = stats.actions ? (stats.actions.find(a => a.action_type === 'offsite_conversion.fb_pixel_purchase') || { value: 0 }).value : 0;
+            const cpc = parseFloat(stats.cpc || '0').toFixed(3);
+            const campaignName = clientCampaigns.rows.find(r => r.campaign_id === stats.campaign_id)?.campaign_alias || stats.campaign_name || "اسم الحملة غير متوفر";
+
+            totalSpend += spend;
+            totalActions += parseInt(actions);
+            
+            replyParts.push(`
+            *#${campaignName}*
+            💰 الإنفاق: ${spend.toFixed(2)} ${DEFAULT_CURRENCY}
+            👁️ الظهور: ${impressions}
+            💸 تكلفة النقرة: ${cpc} ${DEFAULT_CURRENCY}
+            🛒 المبيعات: ${actions || '0'}
+            `);
+        });
+
+        const avgCPA = totalActions > 0 ? (totalSpend / totalActions).toFixed(2) : 'N/A';
+        
+        let finalReply = `
+        📊 **تقرير الأداء الموحد (الأمس: ${insightsData[0]?.date_start || 'N/A'})**
+        ---
+        **ملخص الأداء:**
+        💵 **إجمالي الإنفاق:** ${totalSpend.toFixed(2)} ${DEFAULT_CURRENCY}
+        🛍️ **إجمالي المبي
