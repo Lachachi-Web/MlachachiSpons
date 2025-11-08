@@ -4,7 +4,7 @@ import express from 'express';
 import pkg from 'pg';
 const { Client } = pkg;
 
-// 🟢 (التغيير 1) استيراد لوحات المفاتيح من الملف الجديد
+// 🟢 استيراد لوحات المفاتيح من الملف الجديد
 import { clientKeyboard, adminKeyboard } from './keyboards.js';
 
 // ------------------------------------------------------------------
@@ -13,7 +13,8 @@ import { clientKeyboard, adminKeyboard } from './keyboards.js';
 const token = process.env.TELEGRAM_TOKEN; 
 const accessToken = process.env.FB_ADS_TOKEN;
 const graphUrl = process.env.FB_GRAPH_URL || "https://graph.facebook.com/v20.0";
-const adAccountId = process.env.FB_AD_ACCOUNT_ID;
+// 🎯 تم جلب ايدي الحساب الاعلاني من متغيرات البيئة 
+const adAccountId = process.env.FB_AD_ACCOUNT_ID; 
 
 // ⚠️ التعديل لحل مشكلة 502: تعيين المنفذ يدوياً إلى 3000
 const port = 3000; 
@@ -104,13 +105,14 @@ async function logActivity(telegramId, command) {
 }
 
 // ------------------------------------------------------------------
-// 4. دالة جلب الإحصائيات من Facebook API
+// 4. دالة جلب الإحصائيات من Facebook API (تم تحديث الرابط هنا)
 // ------------------------------------------------------------------
 async function getCampaignInsights(campaignIds, datePreset = 'yesterday') {
     const fields = 'spend,impressions,cpc,ctr,actions,campaign_name,date_start';
     const idsString = campaignIds.join(',');
 
-    const url = `${graphUrl}/insights?fields=${fields}&level=campaign&time_range_preset=${datePreset}&date_preset=${datePreset}&filtering=[{"field":"campaign.id","operator":"IN","value":[${idsString}]}]&access_token=${accessToken}`;
+    // 🟢 التعديل الرئيسي: استخدام act_<AD_ACCOUNT_ID>/insights
+    const url = `${graphUrl}/act_${adAccountId}/insights?fields=${fields}&level=campaign&time_range_preset=${datePreset}&date_preset=${datePreset}&filtering=[{"field":"campaign.id","operator":"IN","value":[${idsString}]}]&access_token=${accessToken}`;
 
     try {
         const response = await fetch(url);
@@ -134,8 +136,7 @@ async function getCampaignInsights(campaignIds, datePreset = 'yesterday') {
 }
 
 // ------------------------------------------------------------------
-// 5. لوحات المفاتيح (الأزرار)
-// 🛑 (التغيير 2) تم حذف التعريفات من هنا لأنها استوردت من keyboards.js
+// 5. لوحات المفاتيح (الأزرار) - يتم استيرادها من keyboards.js
 // ------------------------------------------------------------------
 
 
