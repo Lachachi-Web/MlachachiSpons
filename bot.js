@@ -1,5 +1,5 @@
 import TelegramBot from "node-telegram-bot-api";
-import fetch from "node-fetch";
+// 🛑 تم إزالة: import fetch from "node-fetch"; لأنه مدمج الآن
 import express from 'express';
 // 🟢 استيراد مكتبة PostgreSQL
 import pkg from 'pg';
@@ -20,30 +20,8 @@ const bot = new TelegramBot(token);
 const app = express();
 app.use(express.json()); 
 
-// 👑 تعريف رقم معرف المدير (تم تأكيده: 1621781485import TelegramBot from "node-telegram-bot-api";
-import fetch from "node-fetch";
-import express from 'express';
-// 🟢 استيراد مكتبة PostgreSQL
-import pkg from 'pg';
-const { Client } = pkg;
-
-// ------------------------------------------------------------------
-// 1. المتغيرات والتهيئة
-// ------------------------------------------------------------------
-const token = process.env.TELEGRAM_TOKEN; 
-const accessToken = process.env.FB_ADS_TOKEN;
-const graphUrl = process.env.FB_GRAPH_URL || "https://graph.facebook.com/v20.0";
-const adAccountId = process.env.FB_AD_ACCOUNT_ID;
-
-const port = process.env.PORT || 3000;
-const externalUrl = process.env.RAILWAY_STATIC_URL; // استخدام متغير Railway
-
-const bot = new TelegramBot(token); 
-const app = express();
-app.use(express.json()); 
-
-// 👑 تعريف رقم معرف المدير (غيّره إلى رقمك الخاص)
-const ADMIN_ID = '1621781485'; // ⬅️ **غيّر هذا الرقم إلى رقم Telegram ID الخاص بك (مُحاط بعلامتي اقتباس)**
+// 👑 تعريف رقم معرف المدير (تم تأكيده: 1621781485)
+const ADMIN_ID = '1621781485'; // ⬅️ **الرجاء التأكد من أن هذا هو رقمك الصحيح**
 const DEFAULT_CURRENCY = 'دج'; // العملة الافتراضية
 
 // ------------------------------------------------------------------
@@ -102,7 +80,7 @@ async function initializeDatabase() {
         console.error('❌ خطأ في تهيئة قاعدة البيانات:', error.message);
         isDbConnected = false;
     }
-}
+} // ⬅️ نهاية دالة initializeDatabase
 
 // بدء تهيئة قاعدة البيانات
 initializeDatabase();
@@ -130,6 +108,7 @@ async function getCampaignInsights(campaignIds, datePreset = 'yesterday') {
     const fields = 'spend,impressions,cpc,ctr,actions,campaign_name,date_start';
     const idsString = campaignIds.join(',');
 
+    // ⬅️ نستخدم fetch المدمجة الآن
     const url = `${graphUrl}/insights?fields=${fields}&level=campaign&time_range_preset=${datePreset}&date_preset=${datePreset}&filtering=[{"field":"campaign.id","operator":"IN","value":[${idsString}]}]&access_token=${accessToken}`;
 
     try {
@@ -183,7 +162,7 @@ const adminKeyboard = {
 // 6. أوامر البوت
 // ------------------------------------------------------------------
 
-// أمر /start لتعيين لوحة المفاتيح (تم التأكد من صحة الدالة)
+// أمر /start لتعيين لوحة المفاتيح
 bot.onText(/\/start|العودة للقائمة الرئيسية/, (msg) => {
     const chatId = msg.chat.id.toString();
     logActivity(chatId, '/start');
@@ -412,55 +391,3 @@ bot.onText(/➕ تسجيل عميل\/حملة|\/register (.+) (.+) (.+)/, async 
         bot.sendMessage(chatId, `❌ فشل في تسجيل الحملة: ${error.message}`);
     }
 });
-
-// إضافة إيداع للعميل (الكود كما هو)
-bot.onText(/💰 إضافة إيداع|\/deposit (.+) (.+)/, async (msg, match) => {
-    const chatId = msg.chat.id.toString();
-    if (chatId !== ADMIN_ID) return;
-
-    const [targetTelegramId, amount] = match ? [match[1], match[2]] : [];
-
-    if (!match || isNaN(parseFloat(amount))) {
-        return bot.sendMessage(chatId, `
-        ℹ️ **لإضافة إيداع لعميل:**
-        استخدم الصيغة: \`/deposit <Telegram ID> <المبلغ>\`
-        
-        مثال: \`/deposit 12345678 60000\`
-        `);
-    }
-
-    try {
-        await dbClient.query(
-            `INSERT INTO deposits (telegram_id, amount, currency) VALUES ($1, $2, $3)`,
-            [targetTelegramId, parseFloat(amount), DEFAULT_CURRENCY]
-        );
-        
-        bot.sendMessage(chatId, `✅ تم إضافة إيداع ${amount} ${DEFAULT_CURRENCY} بنجاح للعميل ID: *${targetTelegramId}*`, { parse_mode: "Markdown" });
-        
-    } catch (error) {
-        console.error("Error adding deposit:", error);
-        bot.sendMessage(chatId, `❌ فشل في تسجيل الإيداع: ${error.message}`);
-    }
-});
-
-
-// ------------------------------------------------------------------
-// 7. إعداد الـ Webhook وفتح المنفذ
-// ------------------------------------------------------------------
-app.post(`/bot${token}`, (req, res) => {
-  bot.processUpdate(req.body);
-  res.sendStatus(200); 
-});
-
-app.listen(port, () => {
-    if (externalUrl) {
-        // استخدام متغير Railway لضبط الـ Webhook
-        bot.setWebHook(`${externalUrl}/bot${token}`);
-    }
-    console.log(`✅ البوت شغال ويستمع على المنفذ ${port} والـ Webhook مضبوط.`);
-});
-
-// ⬅️ هذا القوس يغلق دالة initializeDatabase
-// تم وضعه هنا لضمان الاكتمال
-}
-
