@@ -241,4 +241,45 @@ bot.onText(/📊 إحصائيات الحملات|\/stats/, async (msg) => {
         ---
         **ملخص الأداء:**
         💵 **إجمالي الإنفاق:** ${totalSpend.toFixed(2)} ${DEFAULT_CURRENCY}
-        🛍️ **إجمالي المبي
+        🛍️ **إجمالي المبيعات:** ${totalActions}
+        🎯 **متوسط تكلفة المبيعة (CPA):** ${avgCPA} ${DEFAULT_CURRENCY}
+        ---
+        **إحصائيات الحملات الإعلانية:**
+        ${replyParts.join('\n')}
+        `;
+        
+        bot.sendMessage(chatId, finalReply, { parse_mode: "Markdown" });
+        
+    } catch (error) {
+        console.error("Error in /stats:", error);
+        bot.sendMessage(chatId, `❌ حدث خطأ غير متوقع أثناء جلب البيانات: ${error.message}`);
+    }
+});
+
+
+// ------------------------------------------------------------------
+// 6.2. أوامر العميل (الرصيد والإيداعات)
+// ------------------------------------------------------------------
+
+bot.onText(/💰 الرصيد والمصروفات|\/balance/, async (msg) => {
+    const chatId = msg.chat.id.toString();
+    logActivity(chatId, '/balance');
+    
+    if (!isDbConnected) {
+         return bot.sendMessage(chatId, "❌ نظام قاعدة البيانات غير جاهز حالياً.");
+    }
+    
+    // 1. حساب إجمالي الودائع
+    const depositResult = await dbClient.query(
+        `SELECT SUM(amount) AS total_deposit FROM deposits WHERE telegram_id = $1`,
+        [chatId]
+    );
+    const totalDeposit = parseFloat(depositResult.rows[0].total_deposit || '0');
+    
+    // 2. حساب إجمالي الإنفاق (للتجربة، مؤقتًا صفر)
+    let totalSpend = 0; 
+
+    const remainingBalance = totalDeposit - totalSpend;
+    
+    // تحديد الحالة اللونية
+    let statusEmoji, statusText;
