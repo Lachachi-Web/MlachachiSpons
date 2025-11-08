@@ -44,7 +44,7 @@ async function initializeDatabase() {
         await dbClient.connect();
         isDbConnected = true;
         
-        // 1. جدول العملاء والحملات (تم تعديل الحقل إلى campaign_id)
+        // 1. جدول العملاء والحملات
         await dbClient.query(`
             CREATE TABLE IF NOT EXISTS clients (
                 telegram_id TEXT NOT NULL,
@@ -105,11 +105,9 @@ async function logActivity(telegramId, command) {
 // 4. دالة جلب الإحصائيات من Facebook API (للـ Campaign)
 // ------------------------------------------------------------------
 async function getCampaignInsights(campaignIds, datePreset = 'yesterday') {
-    // تم تغيير الحقل هنا إلى campaign_name
     const fields = 'spend,impressions,cpc,ctr,actions,campaign_name,date_start';
     const idsString = campaignIds.join(',');
 
-    // تم تغيير مستوى التحليل إلى 'campaign'
     const url = `${graphUrl}/insights?fields=${fields}&level=campaign&time_range_preset=${datePreset}&date_preset=${datePreset}&filtering=[{"field":"campaign.id","operator":"IN","value":[${idsString}]}]&access_token=${accessToken}`;
 
     try {
@@ -215,3 +213,11 @@ bot.onText(/📊 إحصائيات الحملات|\/stats/, async (msg) => {
         let replyParts = [];
 
         insightsData.forEach(stats => {
+            const spend = parseFloat(stats.spend || '0');
+            const impressions = stats.impressions || '0';
+            // البحث عن المبيعات (نفرض أن نوع الأكشن هو 'purchase')
+            const actions = stats.actions ? (stats.actions.find(a => a.action_type === 'offsite_conversion.fb_pixel_purchase') || { value: 0 }).value : 0;
+            const cpc = parseFloat(stats.cpc || '0').toFixed(3);
+            const dateStart = stats.date_start;
+            // استخدام campaign_alias أو campaign_name
+            const campaignName = clientCampaigns.rows
