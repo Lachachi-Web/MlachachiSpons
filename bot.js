@@ -283,3 +283,152 @@ bot.onText(/💰 الرصيد والمصروفات|\/balance/, async (msg) => {
     
     // تحديد الحالة اللونية
     let statusEmoji, statusText;
+    const lowThreshold = totalDeposit * 0.20; 
+    const criticalThreshold = totalDeposit * 0.05; 
+
+    if (remainingBalance <= criticalThreshold || remainingBalance < 0) {
+        statusEmoji = '🔴';
+        statusText = ' (خطر! يرجى الإيداع فوراً)';
+    } else if (remainingBalance <= lowThreshold) {
+        statusEmoji = '🟠';
+        statusText = ' (تنبيه: الرصيد بدأ ينفد)';
+    } else {
+        statusEmoji = '✅';
+        statusText = ' (الرصيد آمن)';
+    }
+
+    const reply = `
+    💳 **تقرير الرصيد:**
+    
+    💵 **إجمالي الودائع:** ${totalDeposit.toFixed(2)} ${DEFAULT_CURRENCY}
+    💸 **إجمالي المصروفات:** ${totalSpend.toFixed(2)} ${DEFAULT_CURRENCY}
+    ---
+    💰 **الرصيد المتبقي:** ${statusEmoji} ${remainingBalance.toFixed(2)} ${DEFAULT_CURRENCY} ${statusText}
+    
+    *لمعرفة تفاصيل الإيداعات، اضغط على زر "سجل الإيداعات".*
+    `;
+    
+    bot.sendMessage(chatId, reply, { parse_mode: "Markdown" });
+});
+
+bot.onText(/🧾 سجل الإيداعات|\/deposits_history/, async (msg) => {
+    const chatId = msg.chat.id.toString();
+    logActivity(chatId, '/deposits_history');
+    
+    if (!isDbConnected) {
+         return bot.sendMessage(chatId, "❌ نظام قاعدة البيانات غير جاهز.");
+    }
+
+    const depositResult = await dbClient.query(
+        `SELECT amount, deposit_date, currency FROM deposits WHERE telegram_id = $1 ORDER BY deposit_date DESC`,
+        [chatId]
+    );
+    
+    if (depositResult.rows.length === 0) {
+        return bot.sendMessage(chatId, "⚠️ لا توجد إيداعات مسجلة في نظامك حتى الآن.");
+    }
+    
+    let replyParts = ["🧾 **سجل الإيداعات الخاص بك:**\n"];
+    let totalDeposit = 0;
+    
+    depositResult.rows.forEach(row => {
+        const date = new Date(row.deposit_date).toLocaleDateString('ar-DZ'); 
+        replyParts.push(`*بتاريخ ${date}:* 💰 ${parseFloat(row.amount).toFixed(2)} ${row.currency}`);
+        totalDeposit += parseFloat(row.amount);
+    });
+
+    replyParts.push("---");
+    replyParts.push(`**الإجمالي الكلي للودائع:** ${totalDeposit.toFixed(2)} ${DEFAULT_CURRENCY}`);
+    
+    bot.sendMessage(chatId, replyParts.join('\n'), { parse_mode: "Markdown" });
+});
+
+
+// ------------------------------------------------------------------
+// 6.3. أوامر المدير (الإدارة)
+// ------------------------------------------------------------------
+
+bot.onText(/👑 قائمة العملاء|\/admin_menu/, (msg) => {
+    const chatId = msg.chat.id.toString();
+    if (chatId !== ADMIN_ID) {
+        return bot.sendMessage(chatId, "❌ هذا الأمر مخصص للمدير فقط.");
+    }
+    logActivity(chatId, '/admin_menu');
+    bot.sendMessage(chatId, "لوحة تحكم المدير:", adminKeyboard);
+});
+
+// تسجيل عميل وحملة
+bot.onText(/➕ تسجيل عميل\/حملة|\/register (.+) (.+) (.+)/, async (msg, match) => {
+    const chatId = msg.chat.id.toString();
+    if (chatId !== ADMIN_ID) return;
+    
+    const [targetTelegramId, campaignId, alias] = match ? [match[1], match[2], match[3]] : [];
+
+    if (!match) {
+        return bot.sendMessage(chatId, `
+        ℹ️ **لتسجيل عميل بحملة (Campaign ID):**
+        استخدم الصيغة: \`/register <Telegram ID> <Campaign ID> <Alias>\`
+        
+        مثال: \`/register 12345678 238541...98 حملة_رمضان\`
+        `);
+    }
+
+    try {
+        await dbClient.query(
+            `INSERT INTO clients (telegram_id, campaign_id, campaign_alias) VALUES ($1, $2, $3) ON CONFLICT (telegram_id, campaign_id) DO UPDATE SET campaign_alias = $3`,
+            [targetTelegramId, campaignId, alias]
+        );
+        
+        bot.sendMessage(chatId, `✅ تم ربط العميل ID (${targetTelegramId}) بـ Campaign ID:\n*${campaignId}*\nباسم مستعار: *${alias}*`, { parse_mode: "Markdown" });
+        
+    } catch (error) {
+        console.error("Error registering client:", error);
+        bot.sendMessage(chatId, `❌ فشل في تسجيل الحملة: ${error.message}`);
+    }
+});
+
+// إضافة إيداع للعميل 
+bot.onText(/💰 إضافة إيداع|\/deposit (.+) (.+)/, async (msg, match) => {
+    const chatId = msg.chat.id.toString();
+    if (chatId !== ADMIN_ID) return;
+
+    const [targetTelegramId, amount] = match ? [match[1], match[2]] : [];
+
+    if (!match || isNaN(parseFloat(amount))) {
+        return bot.sendMessage(chatId, `
+        ℹ️ **لإضافة إيداع لعميل:**
+        استخدم الصيغة: \`/deposit <Telegram ID> <المبلغ>\`
+        
+        مثال: \`/deposit 12345678 60000\`
+        `);
+    }
+
+    try {
+        await dbClient.query(
+            `INSERT INTO deposits (telegram_id, amount, currency) VALUES ($1, $2, $3)`,
+            [targetTelegramId, parseFloat(amount), DEFAULT_CURRENCY]
+        );
+        
+        bot.sendMessage(chatId, `✅ تم إضافة إيداع ${amount} ${DEFAULT_CURRENCY} بنجاح للعميل ID: *${targetTelegramId}*`, { parse_mode: "Markdown" });
+        
+    } catch (error) {
+        console.error("Error adding deposit:", error);
+        bot.sendMessage(chatId, `❌ فشل في تسجيل الإيداع: ${error.message}`);
+    }
+}); 
+
+// ------------------------------------------------------------------
+// 7. إعداد الـ Webhook وفتح المنفذ
+// ------------------------------------------------------------------
+app.post(`/bot${token}`, (req, res) => {
+  bot.processUpdate(req.body);
+  res.sendStatus(200); 
+});
+
+app.listen(port, () => {
+    if (externalUrl) {
+        // يتم تعيين الـ Webhook عند بدء التشغيل
+        bot.setWebHook(`${externalUrl}/bot${token}`);
+    }
+    console.log(`✅ البوت شغال ويستمع على المنفذ ${port} والـ Webhook مضبوط.`);
+});
