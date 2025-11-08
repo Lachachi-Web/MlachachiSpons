@@ -1,36 +1,116 @@
 import TelegramBot from "node-telegram-bot-api";
 import fetch from "node-fetch";
 import express from 'express';
+// 🟢 استيراد مكتبة PostgreSQL
+import pkg from 'pg';
+const { Client } = pkg;
 
 // ------------------------------------------------------------------
-// 1. قراءة المتغيرات وإعداد البوت (مع إعداد الحملة يدوياً)
+// 1. المتغيرات والتهيئة
 // ------------------------------------------------------------------
 const token = process.env.TELEGRAM_TOKEN; 
 const accessToken = process.env.FB_ADS_TOKEN;
-const graphUrl = process.env.FB_GRAPH_URL;
-
-// 🟢 معلومات العميل الثابتة (للتجربة بدون قاعدة بيانات)
-// يرجى التأكد من أن هذا الـ ID هو رقمك في تيليغرام
-const FIXED_TELEGRAM_ID = "1621781485"; // تم التأكد من أنه كسلسلة نصية
-// يرجى وضع Campaign ID الذي تريد اختباره
-const FIXED_CAMPAIGN_ID = "120234222477170687"; 
+const graphUrl = process.env.FB_GRAPH_URL || "https://graph.facebook.com/v20.0";
+const adAccountId = process.env.FB_AD_ACCOUNT_ID;
 
 const port = process.env.PORT || 3000;
-const externalUrl = process.env.RENDER_EXTERNAL_URL;
+const externalUrl = process.env.RAILWAY_STATIC_URL; // استخدام متغير Railway
 
+const bot = new TelegramBot(token); 
 const app = express();
 app.use(express.json()); 
-const bot = new TelegramBot(token); 
 
-// ❌ تم إزالة: كود تهيئة قاعدة البيانات
+// 👑 تعريف رقم معرف المدير (غيّره إلى رقمك الخاص)
+const ADMIN_ID = '1621781485'; // ⬅️ **غيّر هذا الرقم إلى رقم Telegram ID الخاص بك**
+const DEFAULT_CURRENCY = 'دج'; // العملة الافتراضية
 
 // ------------------------------------------------------------------
-// 3. دالة جلب الإحصائيات من Facebook API
+// 2. إعداد قاعدة بيانات PostgreSQL
 // ------------------------------------------------------------------
-async function getAdInsights(campaignId) {
-    const fields = 'spend,impressions,cpc,ctr,actions,campaign_name';
-    const url = `${graphUrl}/${campaignId}/insights?fields=${fields}&access_token=${accessToken}&time_range_preset=yesterday`;
-    console.log(`DEBUG: Fetching insights for Campaign ID: ${campaignId}`);
+const dbClient = new Client({
+    user: process.env.PGUSER,
+    host: process.env.PGHOST,
+    database: process.env.PGDATABASE,
+    password: process.env.PGPASSWORD,
+    port: 5432,
+    ssl: { rejectUnauthorized: false } // ضروري لبعض بيئات الاستضافة مثل Railway
+});
+
+// متغير لحالة الاتصال
+let isDbConnected = false; 
+
+async function initializeDatabase() {
+    try {
+        await dbClient.connect();
+        isDbConnected = true;
+        
+        // 1. جدول العملاء والحملات (تم تعديل الحقل إلى campaign_id)
+        await dbClient.query(`
+            CREATE TABLE IF NOT EXISTS clients (
+                telegram_id TEXT NOT NULL,
+                campaign_id TEXT NOT NULL,
+                campaign_alias TEXT,
+                PRIMARY KEY (telegram_id, campaign_id)
+            );
+        `);
+
+        // 2. جدول الإيداعات (لحساب الرصيد)
+        await dbClient.query(`
+            CREATE TABLE IF NOT EXISTS deposits (
+                id SERIAL PRIMARY KEY,
+                telegram_id TEXT NOT NULL,
+                amount NUMERIC NOT NULL,
+                deposit_date TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+                currency TEXT DEFAULT '${DEFAULT_CURRENCY}'
+            );
+        `);
+
+        // 3. جدول سجل النشاط
+        await dbClient.query(`
+            CREATE TABLE IF NOT EXISTS activity_log (
+                id SERIAL PRIMARY KEY,
+                telegram_id TEXT NOT NULL,
+                command_used TEXT NOT NULL,
+                log_date TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+            );
+        `);
+
+        console.log('✅ تم تهيئة قاعدة البيانات والجداول بنجاح.');
+    } catch (error) {
+        console.error('❌ خطأ في تهيئة قاعدة البيانات:', error.message);
+        isDbConnected = false;
+    }
+}
+
+// بدء تهيئة قاعدة البيانات
+initializeDatabase();
+
+// ------------------------------------------------------------------
+// 3. مسجل النشاط
+// ------------------------------------------------------------------
+async function logActivity(telegramId, command) {
+    if (isDbConnected) {
+        try {
+            await dbClient.query(
+                `INSERT INTO activity_log (telegram_id, command_used) VALUES ($1, $2)`,
+                [telegramId, command]
+            );
+        } catch (error) {
+            console.error('❌ خطأ في تسجيل النشاط:', error.message);
+        }
+    }
+}
+
+// ------------------------------------------------------------------
+// 4. دالة جلب الإحصائيات من Facebook API (للـ Campaign)
+// ------------------------------------------------------------------
+async function getCampaignInsights(campaignIds, datePreset = 'yesterday') {
+    // تم تغيير الحقل هنا إلى campaign_name
+    const fields = 'spend,impressions,cpc,ctr,actions,campaign_name,date_start';
+    const idsString = campaignIds.join(',');
+
+    // تم تغيير مستوى التحليل إلى 'campaign'
+    const url = `${graphUrl}/insights?fields=${fields}&level=campaign&time_range_preset=${datePreset}&date_preset=${datePreset}&filtering=[{"field":"campaign.id","operator":"IN","value":[${idsString}]}]&access_token=${accessToken}`;
 
     try {
         const response = await fetch(url);
@@ -45,11 +125,7 @@ async function getAdInsights(campaignId) {
             };
         }
 
-        if (!data.data || data.data.length === 0) {
-             return { error: true, message: "تم الاتصال بنجاح، لكن لا توجد بيانات إعلانات في النطاق الزمني المحدد (الأمس) لهذه الحملة." };
-        }
-        
-        return data; 
+        return data.data || []; 
         
     } catch (networkError) {
         console.error("Network or JSON parsing Error:", networkError);
@@ -58,83 +134,84 @@ async function getAdInsights(campaignId) {
 }
 
 // ------------------------------------------------------------------
-// 4. أوامر البوت (تم تعديلها لتستخدم الثوابت)
+// 5. لوحات المفاتيح (الأزرار)
+// ------------------------------------------------------------------
+const clientKeyboard = {
+    reply_markup: {
+        keyboard: [
+            [{ text: '📊 إحصائيات الحملات' }, { text: '💰 الرصيد والمصروفات' }],
+            [{ text: '🧾 سجل الإيداعات' }, { text: '⚙️ تحكم بالإعلانات' }] 
+        ],
+        resize_keyboard: true,
+        one_time_keyboard: false
+    }
+};
+
+const adminKeyboard = {
+    reply_markup: {
+        keyboard: [
+            [{ text: '➕ تسجيل عميل/حملة' }, { text: '💰 إضافة إيداع' }],
+            [{ text: '👑 قائمة العملاء' }, { text: '📊 تقرير الاستخدام' }],
+            [{ text: 'العودة للقائمة الرئيسية' }]
+        ],
+        resize_keyboard: true,
+        one_time_keyboard: false
+    }
+};
+
+// ------------------------------------------------------------------
+// 6. أوامر البوت
 // ------------------------------------------------------------------
 
-// أمر إداري لربط العميل بالحملة (تم تبسيطه لعدم وجود DB)
-bot.onText(/\/setcampaign/, (msg) => {
-    // 🟢 بما أنه لا توجد قاعدة بيانات، فقط نعرض رسالة المساعدة
-    bot.sendMessage(msg.chat.id, 
-        `
-        ℹ️ **وضع الاختبار (Test Mode):**
+// أمر /start لتعيين لوحة المفاتيح
+bot.onText(/\/start|العودة للقائمة الرئيسية/, (msg) => {
+    const chatId = msg.chat.id.toString();
+    logActivity(chatId, '/start');
+    
+    if (chatId === ADMIN_ID) {
+        return bot.sendMessage(chatId, "👋 مرحباً بك أيها المدير. يمكنك استخدام لوحة التحكم الإدارية أو قائمة العملاء:", adminKeyboard);
+    }
+    
+    bot.sendMessage(chatId, "👋 أهلاً بك! يرجى اختيار الإجراء المطلوب من القائمة أدناه:", clientKeyboard);
+});
+
+// ------------------------------------------------------------------
+// 6.1. أوامر العميل (الإحصائيات المجمعة)
+// ------------------------------------------------------------------
+
+bot.onText(/📊 إحصائيات الحملات|\/stats/, async (msg) => {
+    const chatId = msg.chat.id.toString();
+    logActivity(chatId, '/stats');
+    
+    if (!isDbConnected) {
+         return bot.sendMessage(chatId, "❌ نظام قاعدة البيانات غير جاهز حالياً. يرجى المحاولة لاحقاً.");
+    }
+    
+    await bot.sendMessage(chatId, "جارٍ جلب إحصائيات الأمس لجميع حملاتك الإعلانية... 🔄");
+
+    try {
+        // 1. جلب كل الـ Campaigns المرتبطة بالعميل
+        const clientCampaigns = await dbClient.query(
+            `SELECT campaign_id, campaign_alias FROM clients WHERE telegram_id = $1`,
+            [chatId]
+        );
+
+        if (clientCampaigns.rows.length === 0) {
+            return bot.sendMessage(chatId, "⚠️ لم يتم ربطك بأي حملة إعلانية. الرجاء التواصل مع مدير النظام.");
+        }
+
+        const campaignIds = clientCampaigns.rows.map(row => row.campaign_id);
         
-        **لا** توجد قاعدة بيانات متصلة الآن.
-        تم تعيين حملة الاختبار التالية تلقائيًا: \`${FIXED_CAMPAIGN_ID}\`
+        // 2. جلب الإحصائيات من فيسبوك
+        const insightsData = await getCampaignInsights(campaignIds, 'yesterday');
         
-        الرجاء استخدام الأمر ** /stats** الآن لاختبار اتصالك بفيسبوك.
-        `
-        , 
-        { parse_mode: "Markdown" }
-    );
-});
+        if (insightsData.error) {
+            return bot.sendMessage(chatId, `❌ فشل جلب البيانات:\n ${insightsData.message}`);
+        }
+        
+        // 3. تحليل وتجميع النتائج
+        let totalSpend = 0;
+        let totalActions = 0;
+        let replyParts = [];
 
-
-// أمر /stats المعدّل: يجلب الإحصائيات للحملة الثابتة
-bot.onText(/\/stats/, async (msg) => {
-    const chatId = msg.chat.id;
-    
-    // 1. التحقق من تطابق ID العميل مع الـ ID الثابت
-    if (chatId.toString() !== FIXED_TELEGRAM_ID) {
-        return bot.sendMessage(chatId, "⚠️ أنت غير مُصرح لك في وضع الاختبار. يرجى استخدام حساب الـ ID: " + FIXED_TELEGRAM_ID);
-    }
-    
-    await bot.sendMessage(chatId, "جارٍ جلب إحصائيات حملتك المربوطة... 🔄");
-    
-    // 2. جلب البيانات باستخدام Campaign ID الثابت
-    const insights = await getAdInsights(FIXED_CAMPAIGN_ID);
-
-    if (insights.error) {
-        return bot.sendMessage(chatId, `❌ فشل جلب البيانات:\n ${insights.message}`);
-    }
-    
-    // 3. تحليل الرد الناجح
-    const stats = insights.data[0];
-    const spend = parseFloat(stats.spend || '0').toFixed(2);
-    const impressions = stats.impressions || '0';
-    const cpc = parseFloat(stats.cpc || '0').toFixed(3);
-    const dateStart = stats.date_start;
-    const campaignName = stats.campaign_name || "اسم الحملة غير متوفر";
-
-
-    const reply = `
-    📊 **إحصائيات حملتك: ${campaignName}**
-    (لليوم السابق: ${dateStart})
-    
-    💰 **الإنفاق (Spend):** ${spend} €
-    👁️ **مرات الظهور (Impressions):** ${impressions}
-    💸 **تكلفة النقرة (CPC):** ${cpc} €
-    
-    **✅ تم تحديث بياناتك بنجاح.**
-    `;
-    
-    bot.sendMessage(chatId, reply, { parse_mode: "Markdown" });
-});
-
-bot.onText(/\/start/, (msg) => {
-  bot.sendMessage(msg.chat.id, "👋 أهلاً، هذا هو نظام تحديث إحصائيات حملتك (وضع الاختبار). استخدم الأمر /stats لجلب إحصائيات اليوم السابق.");
-});
-
-// ------------------------------------------------------------------
-// 5. إعداد الـ Webhook وفتح المنفذ
-// ------------------------------------------------------------------
-app.post(`/bot${token}`, (req, res) => {
-  bot.processUpdate(req.body);
-  res.sendStatus(200); 
-});
-
-app.listen(port, () => {
-    if (externalUrl) {
-        bot.setWebHook(`${externalUrl}/bot${token}`);
-    }
-    console.log(`✅ البوت شغال ويستمع على المنفذ ${port} والـ Webhook مضبوط.`);
-});
+        insightsData.forEach(stats => {
