@@ -3,6 +3,7 @@ import express from "express";
 import pkg from "pg";
 const { Client } = pkg;
 
+// استيراد الملفات الأخرى
 import { clientKeyboard } from "./clientKeyboard.js";
 import { adminKeyboard } from "./adminKeyboard.js";
 import {
@@ -16,69 +17,44 @@ import {
 import { setEurRate } from "./adminFeatures.js";
 
 // ------------------------------------------------------------------
-// 1️⃣ إعداد المتغيرات العامة
+// الإعداد العام
 // ------------------------------------------------------------------
 const token = process.env.TELEGRAM_TOKEN;
-const accessToken = process.env.FB_ADS_TOKEN;
-const graphUrl = process.env.FB_GRAPH_URL || "https://graph.facebook.com/v20.0";
-const adAccountId = process.env.FB_AD_ACCOUNT_ID;
-
-// ✅ المنفذ الصحيح المتوافق مع Railway
 const port = process.env.PORT || 3000;
-
-// ✅ عنوان التطبيق في Railway
 const externalUrl = process.env.RAILWAY_STATIC_URL;
-const DEFAULT_CURRENCY = "DZD";
 const ADMIN_ID = "1621781485";
+const DEFAULT_CURRENCY = "DZD";
 
-const bot = new TelegramBot(token);
+// ------------------------------------------------------------------
+// إعداد Express
+// ------------------------------------------------------------------
 const app = express();
 app.use(express.json());
 
+// نقطة اختبار لتأكيد أن السيرفر حي
+app.get("/", (req, res) => {
+  res.status(200).send("✅ Bot is running and reachable");
+});
+
 // ------------------------------------------------------------------
-// 2️⃣ إعداد قاعدة البيانات PostgreSQL
+// إعداد البوت وقاعدة البيانات
 // ------------------------------------------------------------------
+const bot = new TelegramBot(token);
 const dbClient = new Client({
   user: process.env.PGUSER,
   host: process.env.PGHOST,
   database: process.env.PGDATABASE,
   password: process.env.PGPASSWORD,
   port: process.env.PGPORT || 5432,
-  ssl: { rejectUnauthorized: false },
+  ssl: { rejectUnauthorized: false }
 });
 
 let isDbConnected = false;
 
-async function initializeDatabase() {
+async function initDatabase() {
   try {
     await dbClient.connect();
     isDbConnected = true;
-
-    await dbClient.query(`
-      CREATE TABLE IF NOT EXISTS clients (
-        telegram_id TEXT NOT NULL,
-        campaign_id TEXT NOT NULL,
-        campaign_alias TEXT,
-        PRIMARY KEY (telegram_id, campaign_id)
-      );
-    `);
-    await dbClient.query(`
-      CREATE TABLE IF NOT EXISTS deposits (
-        id SERIAL PRIMARY KEY,
-        telegram_id TEXT NOT NULL,
-        amount NUMERIC NOT NULL,
-        deposit_date TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
-        currency TEXT DEFAULT '${DEFAULT_CURRENCY}'
-      );
-    `);
-    await dbClient.query(`
-      CREATE TABLE IF NOT EXISTS activity_log (
-        id SERIAL PRIMARY KEY,
-        telegram_id TEXT NOT NULL,
-        command_used TEXT NOT NULL,
-        log_date TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
-      );
-    `);
     await dbClient.query(`
       CREATE TABLE IF NOT EXISTS eur_rate (
         id SERIAL PRIMARY KEY,
@@ -86,108 +62,76 @@ async function initializeDatabase() {
         updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
       );
     `);
-
-    console.log("✅ Base de données initialisée avec succès.");
-  } catch (error) {
-    console.error("❌ Erreur base de données:", error.message);
-    isDbConnected = false;
+    console.log("✅ Database ready");
+  } catch (err) {
+    console.error("❌ Database error:", err.message);
   }
 }
-initializeDatabase();
+initDatabase();
 
 // ------------------------------------------------------------------
-// 3️⃣ دوال مساعدة
+// Webhook Handler
 // ------------------------------------------------------------------
-async function logActivity(telegramId, command) {
-  if (isDbConnected) {
-    try {
-      await dbClient.query(
-        `INSERT INTO activity_log (telegram_id, command_used) VALUES ($1, $2)`,
-        [telegramId, command]
-      );
-    } catch (error) {
-      console.error("❌ Erreur logActivity:", error.message);
-    }
-  }
-}
-
-function matchBtn(text, label) {
-  return text?.trim().toLowerCase() === label.trim().toLowerCase();
-}
-
-// ------------------------------------------------------------------
-// 4️⃣ أوامر البداية /start
-// ------------------------------------------------------------------
-bot.onText(/\/start|Retour au menu principal/, (msg) => {
-  const chatId = msg.chat.id.toString();
-  logActivity(chatId, "/start");
-
-  if (chatId === ADMIN_ID) {
-    bot.sendMessage(chatId, "👑 Bonjour admin, voici votre panneau de contrôle :", adminKeyboard);
-  } else {
-    bot.sendMessage(chatId, "👋 Bienvenue ! Veuillez choisir une option :", clientKeyboard);
+app.post(`/bot${token}`, async (req, res) => {
+  try {
+    console.log("📩 Update reçu de Telegram:", req.body);
+    bot.processUpdate(req.body);
+    res.sendStatus(200);
+  } catch (err) {
+    console.error("❌ Webhook handler error:", err.message);
+    res.sendStatus(500);
   }
 });
 
 // ------------------------------------------------------------------
-// 5️⃣ أوامر الأدمن
+// تفعيل Webhook عند تشغيل السيرفر
 // ------------------------------------------------------------------
-bot.onText(/\/seteur (.+)/, (msg) => {
-  const chatId = msg.chat.id.toString();
-  if (chatId !== ADMIN_ID) {
-    return bot.sendMessage(chatId, "❌ Commande réservée à l'administrateur.");
+app.listen(port, async () => {
+  try {
+    const webhookUrl = `https://${externalUrl}/bot${token}`;
+    await bot.setWebHook(webhookUrl);
+    console.log(`✅ Webhook configuré: ${webhookUrl}`);
+  } catch (err) {
+    console.error("❌ Webhook setup failed:", err.message);
   }
-  setEurRate(bot, chatId, msg.text, dbClient);
+  console.log(`✅ Bot listening on port ${port}`);
 });
 
 // ------------------------------------------------------------------
-// ✅ اختبار بسيط /ping
+// أوامر البوت
 // ------------------------------------------------------------------
 bot.onText(/\/ping/, (msg) => {
   bot.sendMessage(msg.chat.id, "✅ Le bot fonctionne correctement !");
 });
 
+bot.onText(/\/start/, (msg) => {
+  const chatId = msg.chat.id.toString();
+  if (chatId === ADMIN_ID) {
+    bot.sendMessage(chatId, "👑 Bonjour Admin", adminKeyboard);
+  } else {
+    bot.sendMessage(chatId, "👋 Bienvenue !", clientKeyboard);
+  }
+});
+
 // ------------------------------------------------------------------
-// 6️⃣ وظائف العميل
+// وظائف المستخدمين
 // ------------------------------------------------------------------
 bot.on("message", async (msg) => {
   const chatId = msg.chat.id.toString();
-  const text = msg.text || "";
+  const text = (msg.text || "").trim();
 
-  if (matchBtn(text, "📢 Active Compa")) activeCampaigns(bot, chatId, dbClient);
-  if (matchBtn(text, "📊 Statistiques")) statisticsFeature(bot, chatId, dbClient, DEFAULT_CURRENCY);
-  if (matchBtn(text, "💰 Paiements")) paymentsFeature(bot, chatId, dbClient, DEFAULT_CURRENCY);
-  if (matchBtn(text, "🧾 Versements")) versementsFeature(bot, chatId, dbClient, DEFAULT_CURRENCY);
-  if (matchBtn(text, "💱 EUR / DZD")) eurDzdFeature(bot, chatId, dbClient);
-  if (matchBtn(text, "📞 Contact")) contactFeature(bot, chatId);
-});
-
-// ------------------------------------------------------------------
-// 7️⃣ Webhook الخاص بـ Railway
-// ------------------------------------------------------------------
-app.post(`/bot${token}`, (req, res) => {
-  console.log("📩 Update reçu de Telegram:", req.body);
-  bot.processUpdate(req.body);
-  res.sendStatus(200);
-});
-
-// ✅ Endpoint رئيسي لمنع خطأ Application failed to respond
-app.get("/", (req, res) => {
-  res.send("✅ Bot is running");
-});
-
-app.listen(port, () => {
-  if (externalUrl) {
-    const cleanUrl = externalUrl.startsWith("https://")
-      ? externalUrl
-      : `https://${externalUrl}`;
-
-    bot
-      .setWebHook(`${cleanUrl}/bot${token}`)
-      .then(() =>
-        console.log(`✅ Webhook configuré avec succès: ${cleanUrl}/bot${token}`)
-      )
-      .catch((err) => console.error("❌ Erreur Webhook:", err.message));
+  switch (text) {
+    case "📢 Active Compa":
+      return activeCampaigns(bot, chatId, dbClient);
+    case "📊 Statistiques":
+      return statisticsFeature(bot, chatId, dbClient, DEFAULT_CURRENCY);
+    case "💰 Paiements":
+      return paymentsFeature(bot, chatId, dbClient, DEFAULT_CURRENCY);
+    case "🧾 Versements":
+      return versementsFeature(bot, chatId, dbClient, DEFAULT_CURRENCY);
+    case "💱 EUR / DZD":
+      return eurDzdFeature(bot, chatId, dbClient);
+    case "📞 Contact":
+      return contactFeature(bot, chatId);
   }
-  console.log(`✅ Bot actif sur le port ${port}`);
 });
