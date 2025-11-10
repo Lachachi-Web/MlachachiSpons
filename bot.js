@@ -121,6 +121,40 @@ bot.onText(/\/start|Retour au menu principal/, (msg) => {
 });
 
 // ------------------------------------------------------------------
+// 💱 EUR / DZD - dynamique
+// ------------------------------------------------------------------
+export async function eurDzdFeature(bot, chatId, dbClient) {
+  try {
+    const res = await dbClient.query(
+      `SELECT rate, updated_at FROM eur_rate ORDER BY updated_at DESC LIMIT 1`
+    );
+
+    if (res.rows.length === 0) {
+      return bot.sendMessage(
+        chatId,
+        "⚠️ Le taux n'est pas encore défini par l'administrateur."
+      );
+    }
+
+    const { rate, updated_at } = res.rows[0];
+    const date = new Date(updated_at).toLocaleDateString("fr-FR");
+
+    const message = `
+💱 *Taux actuel de l'euro :*
+1 € = ${rate} DZD 🇩🇿
+🗓️ Mis à jour le : ${date}
+`;
+
+    bot.sendMessage(chatId, message, { parse_mode: "Markdown" });
+  } catch (error) {
+    console.error("Erreur EUR/DZD:", error);
+    bot.sendMessage(chatId, "❌ Erreur lors de la récupération du taux.");
+  }
+}
+
+
+
+// ------------------------------------------------------------------
 // 5. تفاعلات لوحة العميل
 // ------------------------------------------------------------------
 bot.on("message", async (msg) => {
@@ -161,3 +195,4 @@ app.listen(port, () => {
   }
   console.log(`✅ Bot actif sur le port ${port}`);
 });
+
