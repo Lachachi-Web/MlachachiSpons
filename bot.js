@@ -6,7 +6,14 @@ const { Client } = pkg;
 // 🟢 استيراد الملفات الخارجية
 import { clientKeyboard } from "./clientKeyboard.js";
 import { adminKeyboard } from "./adminKeyboard.js";
-import { contactFeature } from "./customFeatures.js"; // 🆕 ميزة الاتصال الجديدة
+import {
+  contactFeature,
+  activeCampaigns,
+  statisticsFeature,
+  paymentsFeature,
+  versementsFeature,
+  eurDzdFeature
+} from "./customFeatures.js";
 
 // ------------------------------------------------------------------
 // 1. إعداد المتغيرات العامة
@@ -15,7 +22,7 @@ const token = process.env.TELEGRAM_TOKEN;
 const accessToken = process.env.FB_ADS_TOKEN;
 const graphUrl = process.env.FB_GRAPH_URL || "https://graph.facebook.com/v20.0";
 const adAccountId = process.env.FB_AD_ACCOUNT_ID;
-const port = process.env.PORT || 3000; // ✅ لملاءمة Railway
+const port = process.env.PORT || 3000; // ✅ متوافق مع Railway
 const externalUrl = process.env.RAILWAY_STATIC_URL;
 const DEFAULT_CURRENCY = "DZD";
 const ADMIN_ID = "1621781485";
@@ -25,7 +32,7 @@ const app = express();
 app.use(express.json());
 
 // ------------------------------------------------------------------
-// 2. قاعدة البيانات
+// 2. إعداد قاعدة البيانات
 // ------------------------------------------------------------------
 const dbClient = new Client({
   user: process.env.PGUSER,
@@ -99,18 +106,8 @@ function matchBtn(text, label) {
   return text?.trim().toLowerCase() === label.trim().toLowerCase();
 }
 
-async function getEurDzdRate() {
-  try {
-    const res = await fetch("https://api.exchangerate.host/latest?base=EUR&symbols=DZD");
-    const data = await res.json();
-    return data?.rates?.DZD || null;
-  } catch {
-    return null;
-  }
-}
-
 // ------------------------------------------------------------------
-// 4. الأوامر الأساسية
+// 4. الأوامر العامة
 // ------------------------------------------------------------------
 bot.onText(/\/start|Retour au menu principal/, (msg) => {
   const chatId = msg.chat.id.toString();
@@ -130,67 +127,21 @@ bot.on("message", async (msg) => {
   const chatId = msg.chat.id.toString();
   const text = msg.text || "";
 
-  // 📢 Active Compa
   if (matchBtn(text, "📢 Active Compa")) {
-    const res = await dbClient.query(
-      `SELECT campaign_id, campaign_alias FROM clients WHERE telegram_id = $1`,
-      [chatId]
-    );
-    if (res.rows.length === 0)
-      return bot.sendMessage(chatId, "⚠️ Aucune campagne trouvée pour votre compte.");
-    const lines = res.rows.map(
-      (r, i) => `#${i + 1} • ${r.campaign_alias ?? "Sans nom"}\nID: \`${r.campaign_id}\``
-    );
-    bot.sendMessage(chatId, `📢 **Vos campagnes actives :**\n\n${lines.join("\n\n")}`, {
-      parse_mode: "Markdown",
-    });
+    activeCampaigns(bot, chatId, dbClient);
   }
-
-  // 📊 Statistiques
   if (matchBtn(text, "📊 Statistiques")) {
-    const clientCampaigns = await dbClient.query(
-      `SELECT campaign_id FROM clients WHERE telegram_id = $1`,
-      [chatId]
-    );
-    if (clientCampaigns.rows.length === 0)
-      return bot.sendMessage(chatId, "⚠️ Aucune campagne liée à votre compte.");
-    const campaignIds = clientCampaigns.rows.map((r) => r.campaign_id);
-    bot.sendMessage(chatId, "⏳ Récupération des statistiques des 7 derniers jours...");
-    const insights = await getEurDzdRate(campaignIds, "last_7d");
-    if (insights.error) return bot.sendMessage(chatId, insights.message);
-    let totalSpend = 0;
-    insights.forEach((s) => (totalSpend += parseFloat(s.spend || 0)));
-    bot.sendMessage(chatId, `📊 Dépense totale (7 derniers jours): ${totalSpend.toFixed(2)} ${DEFAULT_CURRENCY}`);
+    statisticsFeature(bot, chatId, dbClient, getCampaignInsights, DEFAULT_CURRENCY);
   }
-
-  // 💰 Paiements
   if (matchBtn(text, "💰 Paiements")) {
-    const dep = await dbClient.query(`SELECT SUM(amount) AS total FROM deposits WHERE telegram_id=$1`, [chatId]);
-    const totalDeposit = parseFloat(dep.rows[0].total || 0);
-    bot.sendMessage(chatId, `💰 Paiement total reçu : ${totalDeposit.toFixed(2)} ${DEFAULT_CURRENCY}`);
+    paymentsFeature(bot, chatId, dbClient, DEFAULT_CURRENCY);
   }
-
-  // 🧾 Versements
   if (matchBtn(text, "🧾 Versements")) {
-    const res = await dbClient.query(
-      `SELECT amount, deposit_date FROM deposits WHERE telegram_id=$1 ORDER BY deposit_date DESC`,
-      [chatId]
-    );
-    if (res.rows.length === 0) return bot.sendMessage(chatId, "⚠️ Aucun versement enregistré.");
-    const lines = res.rows.map(
-      (r) => `💵 ${r.amount} ${DEFAULT_CURRENCY} - ${new Date(r.deposit_date).toLocaleDateString("fr-FR")}`
-    );
-    bot.sendMessage(chatId, `🧾 **Historique des versements :**\n\n${lines.join("\n")}`, { parse_mode: "Markdown" });
+    versementsFeature(bot, chatId, dbClient, DEFAULT_CURRENCY);
   }
-
-  // 💱 EUR / DZD
   if (matchBtn(text, "💱 EUR / DZD")) {
-    const rate = await getEurDzdRate();
-    if (!rate) return bot.sendMessage(chatId, "⚠️ Impossible de récupérer le taux pour le moment.");
-    bot.sendMessage(chatId, `💱 1 EUR ≈ ${rate.toFixed(2)} DZD`);
+    eurDzdFeature(bot, chatId);
   }
-
-  // 📞 Contact (زر جديد من customFeatures.js)
   if (matchBtn(text, "📞 Contact")) {
     contactFeature(bot, chatId);
   }
