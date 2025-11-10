@@ -19,3 +19,6 @@ export const clientKeyboard = {
       ]
     ],
     resize_keyboard: true,
+    one_time_keyboard: false
+  }
+};
