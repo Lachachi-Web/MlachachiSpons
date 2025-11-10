@@ -14,6 +14,7 @@ import {
   versementsFeature,
   eurDzdFeature
 } from "./customFeatures.js";
+import { setEurRate } from "./adminFeatures.js"; // أمر الأدمن لتحديث السعر
 
 // ------------------------------------------------------------------
 // 1. إعداد المتغيرات العامة
@@ -50,6 +51,7 @@ async function initializeDatabase() {
     await dbClient.connect();
     isDbConnected = true;
 
+    // 1️⃣ جدول العملاء
     await dbClient.query(`
       CREATE TABLE IF NOT EXISTS clients (
         telegram_id TEXT NOT NULL,
@@ -59,6 +61,7 @@ async function initializeDatabase() {
       );
     `);
 
+    // 2️⃣ جدول الإيداعات
     await dbClient.query(`
       CREATE TABLE IF NOT EXISTS deposits (
         id SERIAL PRIMARY KEY,
@@ -69,12 +72,22 @@ async function initializeDatabase() {
       );
     `);
 
+    // 3️⃣ جدول النشاط
     await dbClient.query(`
       CREATE TABLE IF NOT EXISTS activity_log (
         id SERIAL PRIMARY KEY,
         telegram_id TEXT NOT NULL,
         command_used TEXT NOT NULL,
         log_date TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+      );
+    `);
+
+    // 4️⃣ جدول سعر اليورو
+    await dbClient.query(`
+      CREATE TABLE IF NOT EXISTS eur_rate (
+        id SERIAL PRIMARY KEY,
+        rate NUMERIC NOT NULL,
+        updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
       );
     `);
 
@@ -85,15 +98,6 @@ async function initializeDatabase() {
   }
 }
 initializeDatabase();
-
-import { setEurRate } from "./adminFeatures.js";
-
-bot.onText(/\/seteur (.+)/, (msg) => {
-  const chatId = msg.chat.id.toString();
-  if (chatId !== ADMIN_ID) return bot.sendMessage(chatId, "❌ Commande réservée à l'administrateur.");
-  setEurRate(bot, chatId, msg.text, dbClient);
-});
-
 
 // ------------------------------------------------------------------
 // 3. دوال مساعدة
@@ -116,7 +120,7 @@ function matchBtn(text, label) {
 }
 
 // ------------------------------------------------------------------
-// 4. الأوامر العامة
+// 4. أوامر عامة
 // ------------------------------------------------------------------
 bot.onText(/\/start|Retour au menu principal/, (msg) => {
   const chatId = msg.chat.id.toString();
@@ -130,41 +134,19 @@ bot.onText(/\/start|Retour au menu principal/, (msg) => {
 });
 
 // ------------------------------------------------------------------
-// 💱 EUR / DZD - dynamique
+// 5. أوامر الأدمن الخاصة
 // ------------------------------------------------------------------
-export async function eurDzdFeature(bot, chatId, dbClient) {
-  try {
-    const res = await dbClient.query(
-      `SELECT rate, updated_at FROM eur_rate ORDER BY updated_at DESC LIMIT 1`
-    );
-
-    if (res.rows.length === 0) {
-      return bot.sendMessage(
-        chatId,
-        "⚠️ Le taux n'est pas encore défini par l'administrateur."
-      );
-    }
-
-    const { rate, updated_at } = res.rows[0];
-    const date = new Date(updated_at).toLocaleDateString("fr-FR");
-
-    const message = `
-💱 *Taux actuel de l'euro :*
-1 € = ${rate} DZD 🇩🇿
-🗓️ Mis à jour le : ${date}
-`;
-
-    bot.sendMessage(chatId, message, { parse_mode: "Markdown" });
-  } catch (error) {
-    console.error("Erreur EUR/DZD:", error);
-    bot.sendMessage(chatId, "❌ Erreur lors de la récupération du taux.");
+// /seteur 280 ← لتغيير سعر اليورو
+bot.onText(/\/seteur (.+)/, (msg) => {
+  const chatId = msg.chat.id.toString();
+  if (chatId !== ADMIN_ID) {
+    return bot.sendMessage(chatId, "❌ Commande réservée à l'administrateur.");
   }
-}
-
-
+  setEurRate(bot, chatId, msg.text, dbClient);
+});
 
 // ------------------------------------------------------------------
-// 5. تفاعلات لوحة العميل
+// 6. تفاعلات لوحة العميل
 // ------------------------------------------------------------------
 bot.on("message", async (msg) => {
   const chatId = msg.chat.id.toString();
@@ -174,7 +156,7 @@ bot.on("message", async (msg) => {
     activeCampaigns(bot, chatId, dbClient);
   }
   if (matchBtn(text, "📊 Statistiques")) {
-    statisticsFeature(bot, chatId, dbClient, getCampaignInsights, DEFAULT_CURRENCY);
+    statisticsFeature(bot, chatId, dbClient, DEFAULT_CURRENCY);
   }
   if (matchBtn(text, "💰 Paiements")) {
     paymentsFeature(bot, chatId, dbClient, DEFAULT_CURRENCY);
@@ -183,7 +165,7 @@ bot.on("message", async (msg) => {
     versementsFeature(bot, chatId, dbClient, DEFAULT_CURRENCY);
   }
   if (matchBtn(text, "💱 EUR / DZD")) {
-    eurDzdFeature(bot, chatId);
+    eurDzdFeature(bot, chatId, dbClient);
   }
   if (matchBtn(text, "📞 Contact")) {
     contactFeature(bot, chatId);
@@ -191,7 +173,7 @@ bot.on("message", async (msg) => {
 });
 
 // ------------------------------------------------------------------
-// 6. Webhook لتشغيل البوت على Railway
+// 7. Webhook لتشغيل البوت على Railway
 // ------------------------------------------------------------------
 app.post(`/bot${token}`, (req, res) => {
   bot.processUpdate(req.body);
@@ -204,5 +186,3 @@ app.listen(port, () => {
   }
   console.log(`✅ Bot actif sur le port ${port}`);
 });
-
-
