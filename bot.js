@@ -1,3 +1,5 @@
+import { clientKeyboard } from './clientKeyboard.js';
+import { adminKeyboard } from './adminKeyboard.js';
 import TelegramBot from "node-telegram-bot-api";
 import express from 'express';
 // 🟢 استيراد مكتبة PostgreSQL
@@ -415,4 +417,5 @@ app.listen(port, () => {
         bot.setWebHook(`${externalUrl}/bot${token}`);
     }
     console.log(`✅ البوت شغال ويستمع على المنفذ ${port} والـ Webhook مضبوط.`);
+
 });
