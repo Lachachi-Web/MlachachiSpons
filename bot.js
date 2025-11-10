@@ -14,16 +14,20 @@ import {
   versementsFeature,
   eurDzdFeature
 } from "./customFeatures.js";
-import { setEurRate } from "./adminFeatures.js"; // أمر الأدمن لتحديث سعر اليورو
+import { setEurRate } from "./adminFeatures.js";
 
 // ------------------------------------------------------------------
-// 1. إعداد المتغيرات العامة
+// 1️⃣ إعداد المتغيرات العامة
 // ------------------------------------------------------------------
 const token = process.env.TELEGRAM_TOKEN;
 const accessToken = process.env.FB_ADS_TOKEN;
 const graphUrl = process.env.FB_GRAPH_URL || "https://graph.facebook.com/v20.0";
 const adAccountId = process.env.FB_AD_ACCOUNT_ID;
-const port = process.env.PORT || 3000; // ✅ المنفذ متوافق مع Railway
+
+// ✅ المنفذ الصحيح المتوافق مع Railway
+const port = process.env.PORT || 3000;
+
+// ✅ عنوان التطبيق في Railway
 const externalUrl = process.env.RAILWAY_STATIC_URL;
 const DEFAULT_CURRENCY = "DZD";
 const ADMIN_ID = "1621781485";
@@ -33,7 +37,7 @@ const app = express();
 app.use(express.json());
 
 // ------------------------------------------------------------------
-// 2. إعداد قاعدة البيانات
+// 2️⃣ إعداد قاعدة البيانات PostgreSQL
 // ------------------------------------------------------------------
 const dbClient = new Client({
   user: process.env.PGUSER,
@@ -51,7 +55,7 @@ async function initializeDatabase() {
     await dbClient.connect();
     isDbConnected = true;
 
-    // 🧱 إنشاء الجداول
+    // 🧱 إنشاء الجداول الأساسية
     await dbClient.query(`
       CREATE TABLE IF NOT EXISTS clients (
         telegram_id TEXT NOT NULL,
@@ -97,7 +101,7 @@ async function initializeDatabase() {
 initializeDatabase();
 
 // ------------------------------------------------------------------
-// 3. دوال مساعدة
+// 3️⃣ دوال مساعدة
 // ------------------------------------------------------------------
 async function logActivity(telegramId, command) {
   if (isDbConnected) {
@@ -107,7 +111,7 @@ async function logActivity(telegramId, command) {
         [telegramId, command]
       );
     } catch (error) {
-      console.error("❌ Erreur lors de l’enregistrement de l’activité:", error.message);
+      console.error("❌ Erreur logActivity:", error.message);
     }
   }
 }
@@ -117,7 +121,7 @@ function matchBtn(text, label) {
 }
 
 // ------------------------------------------------------------------
-// 4. أوامر عامة
+// 4️⃣ أوامر البداية /start
 // ------------------------------------------------------------------
 bot.onText(/\/start|Retour au menu principal/, (msg) => {
   const chatId = msg.chat.id.toString();
@@ -131,7 +135,7 @@ bot.onText(/\/start|Retour au menu principal/, (msg) => {
 });
 
 // ------------------------------------------------------------------
-// 5. أوامر الأدمن الخاصة
+// 5️⃣ أوامر الأدمن
 // ------------------------------------------------------------------
 bot.onText(/\/seteur (.+)/, (msg) => {
   const chatId = msg.chat.id.toString();
@@ -142,7 +146,7 @@ bot.onText(/\/seteur (.+)/, (msg) => {
 });
 
 // ------------------------------------------------------------------
-// 6. تفاعلات لوحة العميل
+// 6️⃣ وظائف العميل
 // ------------------------------------------------------------------
 bot.on("message", async (msg) => {
   const chatId = msg.chat.id.toString();
@@ -157,7 +161,7 @@ bot.on("message", async (msg) => {
 });
 
 // ------------------------------------------------------------------
-// 7. Webhook لتشغيل البوت على Railway
+// 7️⃣ Webhook الخاص بـ Railway
 // ------------------------------------------------------------------
 app.post(`/bot${token}`, (req, res) => {
   bot.processUpdate(req.body);
@@ -166,14 +170,18 @@ app.post(`/bot${token}`, (req, res) => {
 
 app.listen(port, () => {
   if (externalUrl) {
-    // 🔒 تأكد من وجود https:// في رابط Webhook
+    // ✅ تأكد من وجود https:// في الرابط
     const cleanUrl = externalUrl.startsWith("https://")
       ? externalUrl
       : `https://${externalUrl}`;
 
-    bot.setWebHook(`${cleanUrl}/bot${token}`)
-      .then(() => console.log(`✅ Webhook configuré avec succès: ${cleanUrl}/bot${token}`))
-      .catch(err => console.error("❌ Erreur Webhook:", err.message));
+    bot
+      .setWebHook(`${cleanUrl}/bot${token}`)
+      .then(() =>
+        console.log(`✅ Webhook configuré avec succès: ${cleanUrl}/bot${token}`)
+      )
+      .catch((err) => console.error("❌ Erreur Webhook:", err.message));
   }
+
   console.log(`✅ Bot actif sur le port ${port}`);
 });
