@@ -3,7 +3,6 @@ import express from "express";
 import pkg from "pg";
 const { Client } = pkg;
 
-// 🟢 استيراد الملفات الخارجية
 import { clientKeyboard } from "./clientKeyboard.js";
 import { adminKeyboard } from "./adminKeyboard.js";
 import {
@@ -55,7 +54,6 @@ async function initializeDatabase() {
     await dbClient.connect();
     isDbConnected = true;
 
-    // 🧱 إنشاء الجداول الأساسية
     await dbClient.query(`
       CREATE TABLE IF NOT EXISTS clients (
         telegram_id TEXT NOT NULL,
@@ -64,7 +62,6 @@ async function initializeDatabase() {
         PRIMARY KEY (telegram_id, campaign_id)
       );
     `);
-
     await dbClient.query(`
       CREATE TABLE IF NOT EXISTS deposits (
         id SERIAL PRIMARY KEY,
@@ -74,7 +71,6 @@ async function initializeDatabase() {
         currency TEXT DEFAULT '${DEFAULT_CURRENCY}'
       );
     `);
-
     await dbClient.query(`
       CREATE TABLE IF NOT EXISTS activity_log (
         id SERIAL PRIMARY KEY,
@@ -83,7 +79,6 @@ async function initializeDatabase() {
         log_date TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
       );
     `);
-
     await dbClient.query(`
       CREATE TABLE IF NOT EXISTS eur_rate (
         id SERIAL PRIMARY KEY,
@@ -146,6 +141,13 @@ bot.onText(/\/seteur (.+)/, (msg) => {
 });
 
 // ------------------------------------------------------------------
+// ✅ اختبار بسيط /ping
+// ------------------------------------------------------------------
+bot.onText(/\/ping/, (msg) => {
+  bot.sendMessage(msg.chat.id, "✅ Le bot fonctionne correctement !");
+});
+
+// ------------------------------------------------------------------
 // 6️⃣ وظائف العميل
 // ------------------------------------------------------------------
 bot.on("message", async (msg) => {
@@ -164,13 +166,18 @@ bot.on("message", async (msg) => {
 // 7️⃣ Webhook الخاص بـ Railway
 // ------------------------------------------------------------------
 app.post(`/bot${token}`, (req, res) => {
+  console.log("📩 Update reçu de Telegram:", req.body);
   bot.processUpdate(req.body);
   res.sendStatus(200);
 });
 
+// ✅ Endpoint رئيسي لمنع خطأ Application failed to respond
+app.get("/", (req, res) => {
+  res.send("✅ Bot is running");
+});
+
 app.listen(port, () => {
   if (externalUrl) {
-    // ✅ تأكد من وجود https:// في الرابط
     const cleanUrl = externalUrl.startsWith("https://")
       ? externalUrl
       : `https://${externalUrl}`;
@@ -182,22 +189,5 @@ app.listen(port, () => {
       )
       .catch((err) => console.error("❌ Erreur Webhook:", err.message));
   }
-
   console.log(`✅ Bot actif sur le port ${port}`);
 });
-
-
-// ------------------------------------------------------------------
-// ✅ Test: Vérification du bot /ping
-// ------------------------------------------------------------------
-bot.onText(/\/ping/, (msg) => {
-  const chatId = msg.chat.id.toString();
-  bot.sendMessage(chatId, "✅ Le bot fonctionne correctement !");
-});
-
-app.post(`/bot${token}`, (req, res) => {
-  console.log("📩 Update reçu de Telegram:", req.body); // اختبار بسيط
-  bot.processUpdate(req.body);
-  res.sendStatus(200);
-});
-
