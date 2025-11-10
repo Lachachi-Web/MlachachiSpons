@@ -185,3 +185,13 @@ app.listen(port, () => {
 
   console.log(`✅ Bot actif sur le port ${port}`);
 });
+
+
+// ------------------------------------------------------------------
+// ✅ Test: Vérification du bot /ping
+// ------------------------------------------------------------------
+bot.onText(/\/ping/, (msg) => {
+  const chatId = msg.chat.id.toString();
+  bot.sendMessage(chatId, "✅ Le bot fonctionne correctement !");
+});
+
