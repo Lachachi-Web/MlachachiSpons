@@ -14,7 +14,7 @@ import {
   versementsFeature,
   eurDzdFeature
 } from "./customFeatures.js";
-import { setEurRate } from "./adminFeatures.js"; // أمر الأدمن لتحديث السعر
+import { setEurRate } from "./adminFeatures.js"; // أمر الأدمن لتحديث سعر اليورو
 
 // ------------------------------------------------------------------
 // 1. إعداد المتغيرات العامة
@@ -23,7 +23,7 @@ const token = process.env.TELEGRAM_TOKEN;
 const accessToken = process.env.FB_ADS_TOKEN;
 const graphUrl = process.env.FB_GRAPH_URL || "https://graph.facebook.com/v20.0";
 const adAccountId = process.env.FB_AD_ACCOUNT_ID;
-const port = process.env.PORT || 3000; // ✅ متوافق مع Railway
+const port = process.env.PORT || 3000; // ✅ المنفذ متوافق مع Railway
 const externalUrl = process.env.RAILWAY_STATIC_URL;
 const DEFAULT_CURRENCY = "DZD";
 const ADMIN_ID = "1621781485";
@@ -51,7 +51,7 @@ async function initializeDatabase() {
     await dbClient.connect();
     isDbConnected = true;
 
-    // 1️⃣ جدول العملاء
+    // 🧱 إنشاء الجداول
     await dbClient.query(`
       CREATE TABLE IF NOT EXISTS clients (
         telegram_id TEXT NOT NULL,
@@ -61,7 +61,6 @@ async function initializeDatabase() {
       );
     `);
 
-    // 2️⃣ جدول الإيداعات
     await dbClient.query(`
       CREATE TABLE IF NOT EXISTS deposits (
         id SERIAL PRIMARY KEY,
@@ -72,7 +71,6 @@ async function initializeDatabase() {
       );
     `);
 
-    // 3️⃣ جدول النشاط
     await dbClient.query(`
       CREATE TABLE IF NOT EXISTS activity_log (
         id SERIAL PRIMARY KEY,
@@ -82,7 +80,6 @@ async function initializeDatabase() {
       );
     `);
 
-    // 4️⃣ جدول سعر اليورو
     await dbClient.query(`
       CREATE TABLE IF NOT EXISTS eur_rate (
         id SERIAL PRIMARY KEY,
@@ -136,7 +133,6 @@ bot.onText(/\/start|Retour au menu principal/, (msg) => {
 // ------------------------------------------------------------------
 // 5. أوامر الأدمن الخاصة
 // ------------------------------------------------------------------
-// /seteur 280 ← لتغيير سعر اليورو
 bot.onText(/\/seteur (.+)/, (msg) => {
   const chatId = msg.chat.id.toString();
   if (chatId !== ADMIN_ID) {
@@ -152,24 +148,12 @@ bot.on("message", async (msg) => {
   const chatId = msg.chat.id.toString();
   const text = msg.text || "";
 
-  if (matchBtn(text, "📢 Active Compa")) {
-    activeCampaigns(bot, chatId, dbClient);
-  }
-  if (matchBtn(text, "📊 Statistiques")) {
-    statisticsFeature(bot, chatId, dbClient, DEFAULT_CURRENCY);
-  }
-  if (matchBtn(text, "💰 Paiements")) {
-    paymentsFeature(bot, chatId, dbClient, DEFAULT_CURRENCY);
-  }
-  if (matchBtn(text, "🧾 Versements")) {
-    versementsFeature(bot, chatId, dbClient, DEFAULT_CURRENCY);
-  }
-  if (matchBtn(text, "💱 EUR / DZD")) {
-    eurDzdFeature(bot, chatId, dbClient);
-  }
-  if (matchBtn(text, "📞 Contact")) {
-    contactFeature(bot, chatId);
-  }
+  if (matchBtn(text, "📢 Active Compa")) activeCampaigns(bot, chatId, dbClient);
+  if (matchBtn(text, "📊 Statistiques")) statisticsFeature(bot, chatId, dbClient, DEFAULT_CURRENCY);
+  if (matchBtn(text, "💰 Paiements")) paymentsFeature(bot, chatId, dbClient, DEFAULT_CURRENCY);
+  if (matchBtn(text, "🧾 Versements")) versementsFeature(bot, chatId, dbClient, DEFAULT_CURRENCY);
+  if (matchBtn(text, "💱 EUR / DZD")) eurDzdFeature(bot, chatId, dbClient);
+  if (matchBtn(text, "📞 Contact")) contactFeature(bot, chatId);
 });
 
 // ------------------------------------------------------------------
@@ -182,7 +166,14 @@ app.post(`/bot${token}`, (req, res) => {
 
 app.listen(port, () => {
   if (externalUrl) {
-    bot.setWebHook(`${externalUrl}/bot${token}`);
+    // 🔒 تأكد من وجود https:// في رابط Webhook
+    const cleanUrl = externalUrl.startsWith("https://")
+      ? externalUrl
+      : `https://${externalUrl}`;
+
+    bot.setWebHook(`${cleanUrl}/bot${token}`)
+      .then(() => console.log(`✅ Webhook configuré avec succès: ${cleanUrl}/bot${token}`))
+      .catch(err => console.error("❌ Erreur Webhook:", err.message));
   }
   console.log(`✅ Bot actif sur le port ${port}`);
 });
