@@ -86,6 +86,15 @@ async function initializeDatabase() {
 }
 initializeDatabase();
 
+import { setEurRate } from "./adminFeatures.js";
+
+bot.onText(/\/seteur (.+)/, (msg) => {
+  const chatId = msg.chat.id.toString();
+  if (chatId !== ADMIN_ID) return bot.sendMessage(chatId, "❌ Commande réservée à l'administrateur.");
+  setEurRate(bot, chatId, msg.text, dbClient);
+});
+
+
 // ------------------------------------------------------------------
 // 3. دوال مساعدة
 // ------------------------------------------------------------------
@@ -195,4 +204,5 @@ app.listen(port, () => {
   }
   console.log(`✅ Bot actif sur le port ${port}`);
 });
+
 
