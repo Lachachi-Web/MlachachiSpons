@@ -195,3 +195,9 @@ bot.onText(/\/ping/, (msg) => {
   bot.sendMessage(chatId, "✅ Le bot fonctionne correctement !");
 });
 
+app.post(`/bot${token}`, (req, res) => {
+  console.log("📩 Update reçu de Telegram:", req.body); // اختبار بسيط
+  bot.processUpdate(req.body);
+  res.sendStatus(200);
+});
+
