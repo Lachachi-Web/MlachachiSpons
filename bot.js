@@ -1,13 +1,11 @@
-import { clientKeyboard } from './clientKeyboard.js';
-import { adminKeyboard } from './adminKeyboard.js';
 import TelegramBot from "node-telegram-bot-api";
 import express from 'express';
-// 🟢 استيراد مكتبة PostgreSQL
 import pkg from 'pg';
 const { Client } = pkg;
 
-// 🟢 استيراد لوحات المفاتيح من الملف الجديد
-import { clientKeyboard, adminKeyboard } from './keyboards.js';
+// 🟢 استيراد لوحات المفاتيح
+import { clientKeyboard } from './clientKeyboard.js';
+import { adminKeyboard } from './adminKeyboard.js';
 
 // ------------------------------------------------------------------
 // 1. المتغيرات والتهيئة
@@ -15,23 +13,20 @@ import { clientKeyboard, adminKeyboard } from './keyboards.js';
 const token = process.env.TELEGRAM_TOKEN; 
 const accessToken = process.env.FB_ADS_TOKEN;
 const graphUrl = process.env.FB_GRAPH_URL || "https://graph.facebook.com/v20.0";
-// 🎯 تم جلب ايدي الحساب الاعلاني من متغيرات البيئة 
 const adAccountId = process.env.FB_AD_ACCOUNT_ID; 
 
-// ⚠️ التعديل لحل مشكلة 502: تعيين المنفذ يدوياً إلى 3000
 const port = 3000; 
-const externalUrl = process.env.RAILWAY_STATIC_URL; // استخدام متغير Railway
+const externalUrl = process.env.RAILWAY_STATIC_URL;
 
-const bot = new TelegramBot(token); 
+const bot = new TelegramBot(token);
 const app = express();
 app.use(express.json()); 
 
-// 👑 تعريف رقم معرف المدير (1621781485)
 const ADMIN_ID = '1621781485'; 
-const DEFAULT_CURRENCY = 'دج'; // العملة الافتراضية
+const DEFAULT_CURRENCY = 'DZD';
 
 // ------------------------------------------------------------------
-// 2. إعداد قاعدة بيانات PostgreSQL
+// 2. قاعدة البيانات
 // ------------------------------------------------------------------
 const dbClient = new Client({
     user: process.env.PGUSER,
@@ -42,15 +37,12 @@ const dbClient = new Client({
     ssl: { rejectUnauthorized: false }
 });
 
-let isDbConnected = false; 
+let isDbConnected = false;
 
-// دالة تهيئة قاعدة البيانات
 async function initializeDatabase() {
     try {
         await dbClient.connect();
         isDbConnected = true;
-        
-        // 1. جدول العملاء والحملات
         await dbClient.query(`
             CREATE TABLE IF NOT EXISTS clients (
                 telegram_id TEXT NOT NULL,
@@ -59,8 +51,6 @@ async function initializeDatabase() {
                 PRIMARY KEY (telegram_id, campaign_id)
             );
         `);
-
-        // 2. جدول الإيداعات (لحساب الرصيد)
         await dbClient.query(`
             CREATE TABLE IF NOT EXISTS deposits (
                 id SERIAL PRIMARY KEY,
@@ -70,8 +60,6 @@ async function initializeDatabase() {
                 currency TEXT DEFAULT '${DEFAULT_CURRENCY}'
             );
         `);
-
-        // 3. جدول سجل النشاط
         await dbClient.query(`
             CREATE TABLE IF NOT EXISTS activity_log (
                 id SERIAL PRIMARY KEY,
@@ -79,19 +67,17 @@ async function initializeDatabase() {
                 command_used TEXT NOT NULL,
                 log_date TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
             );
-        `); 
-
-        console.log('✅ تم تهيئة قاعدة البيانات والجداول بنجاح.');
+        `);
+        console.log('✅ Base de données initialisée avec succès.');
     } catch (error) {
-        console.error('❌ خطأ في تهيئة قاعدة البيانات:', error.message);
+        console.error('❌ Erreur base de données:', error.message);
         isDbConnected = false;
     }
-} 
-
+}
 initializeDatabase();
 
 // ------------------------------------------------------------------
-// 3. مسجل النشاط
+// 3. Fonctions Utiles
 // ------------------------------------------------------------------
 async function logActivity(telegramId, command) {
     if (isDbConnected) {
@@ -101,321 +87,72 @@ async function logActivity(telegramId, command) {
                 [telegramId, command]
             );
         } catch (error) {
-            console.error('❌ خطأ في تسجيل النشاط:', error.message);
+            console.error('❌ Erreur lors de l’enregistrement de l’activité:', error.message);
         }
     }
 }
 
-// ------------------------------------------------------------------
-// 4. دالة جلب الإحصائيات من Facebook API (تم تحديث الرابط هنا)
-// ------------------------------------------------------------------
+function matchBtn(text, label) {
+  if (!text) return false;
+  return text.trim().toLowerCase() === label.trim().toLowerCase();
+}
+
+async function getEurDzdRate() {
+  try {
+    const res = await fetch('https://api.exchangerate.host/latest?base=EUR&symbols=DZD');
+    const data = await res.json();
+    return data?.rates?.DZD || null;
+  } catch {
+    return null;
+  }
+}
+
 async function getCampaignInsights(campaignIds, datePreset = 'yesterday') {
-    const fields = 'spend,impressions,cpc,ctr,actions,campaign_name,date_start';
-    const idsString = campaignIds.join(',');
-
-    // 🟢 التعديل الرئيسي: استخدام act_<AD_ACCOUNT_ID>/insights
-    const url = `${graphUrl}/act_${adAccountId}/insights?fields=${fields}&level=campaign&time_range_preset=${datePreset}&date_preset=${datePreset}&filtering=[{"field":"campaign.id","operator":"IN","value":[${idsString}]}]&access_token=${accessToken}`;
-
-    try {
-        const response = await fetch(url);
-        const data = await response.json();
-        
-        if (data.error) {
-            const errorDetails = data.error.message || 'خطأ غير معروف';
-            console.error("Facebook API Error Details:", errorDetails);
-            return { 
-                error: true, 
-                message: `خطأ من فيسبوك: ${errorDetails} (Type: ${data.error.type || 'غير محدد'})`
-            };
-        }
-
-        return data.data || []; 
-        
-    } catch (networkError) {
-        console.error("Network or JSON parsing Error:", networkError);
-        return { error: true, message: `حدث خطأ شبكة أو تحليل JSON: ${networkError.message}` };
+  const fields = 'campaign_id,campaign_name,spend,impressions,cpc,ctr,actions,date_start,date_stop';
+  const idsString = campaignIds.map(id => `"${id}"`).join(',');
+  const url = `${graphUrl}/act_${adAccountId}/insights?fields=${fields}&level=campaign&date_preset=${datePreset}&filtering=[{"field":"campaign.id","operator":"IN","value":[${idsString}]}]&access_token=${accessToken}`;
+  try {
+    const response = await fetch(url);
+    const data = await response.json();
+    if (data.error) {
+      console.error("Facebook API Error:", data.error.message);
+      return { error: true, message: `Erreur Facebook: ${data.error.message}` };
     }
+    return data.data || [];
+  } catch (error) {
+    console.error("Erreur réseau:", error);
+    return { error: true, message: `Erreur réseau: ${error.message}` };
+  }
 }
 
 // ------------------------------------------------------------------
-// 5. لوحات المفاتيح (الأزرار) - يتم استيرادها من keyboards.js
+// 4. Commandes principales
 // ------------------------------------------------------------------
-
-
-// ------------------------------------------------------------------
-// 6. أوامر البوت
-// ------------------------------------------------------------------
-
-// أمر /start لتعيين لوحة المفاتيح
-bot.onText(/\/start|العودة للقائمة الرئيسية/, (msg) => {
-    const chatId = msg.chat.id.toString();
-    logActivity(chatId, '/start');
-    
-    // 👑 اختبار المدير
-    if (chatId === ADMIN_ID) {
-        return bot.sendMessage(chatId, "👋 مرحباً بك أيها المدير. يمكنك استخدام لوحة التحكم الإدارية:", adminKeyboard);
-    }
-    
-    // 👤 لوحة مفاتيح العميل
-    bot.sendMessage(chatId, "👋 أهلاً بك! يرجى اختيار الإجراء المطلوب من القائمة أدناه:", clientKeyboard);
+bot.onText(/\/start|Retour au menu principal/, (msg) => {
+  const chatId = msg.chat.id.toString();
+  logActivity(chatId, '/start');
+  
+  if (chatId === ADMIN_ID) {
+      bot.sendMessage(chatId, "👑 Bonjour admin, voici votre panneau de contrôle :", adminKeyboard);
+  } else {
+      bot.sendMessage(chatId, "👋 Bienvenue ! Veuillez choisir une option :", clientKeyboard);
+  }
 });
 
-
 // ------------------------------------------------------------------
-// 6.1. أوامر العميل (الإحصائيات المجمعة)
+// 5. Commandes du client
 // ------------------------------------------------------------------
+bot.on('message', async (msg) => {
+  const chatId = msg.chat.id.toString();
+  const text = msg.text || '';
 
-bot.onText(/📊 إحصائيات الحملات|\/stats/, async (msg) => {
-    const chatId = msg.chat.id.toString();
-    logActivity(chatId, '/stats');
-    
-    if (!isDbConnected) {
-         return bot.sendMessage(chatId, "❌ نظام قاعدة البيانات غير جاهز حالياً. يرجى المحاولة لاحقاً.");
-    }
-    
-    await bot.sendMessage(chatId, "جارٍ جلب إحصائيات الأمس لجميع حملاتك الإعلانية... 🔄");
-
-    try {
-        // 1. جلب كل الـ Campaigns المرتبطة بالعميل
-        const clientCampaigns = await dbClient.query(
-            `SELECT campaign_id, campaign_alias FROM clients WHERE telegram_id = $1`,
-            [chatId]
-        );
-
-        if (clientCampaigns.rows.length === 0) {
-            return bot.sendMessage(chatId, "⚠️ لم يتم ربطك بأي حملة إعلانية. الرجاء التواصل مع مدير النظام.");
-        }
-
-        const campaignIds = clientCampaigns.rows.map(row => row.campaign_id);
-        
-        // 2. جلب الإحصائيات من فيسبوك
-        const insightsData = await getCampaignInsights(campaignIds, 'yesterday');
-        
-        if (insightsData.error) {
-            return bot.sendMessage(chatId, `❌ فشل جلب البيانات:\n ${insightsData.message}`);
-        }
-        
-        // 3. تحليل وتجميع النتائج
-        let totalSpend = 0;
-        let totalActions = 0;
-        let replyParts = [];
-
-        insightsData.forEach(stats => {
-            const spend = parseFloat(stats.spend || '0');
-            const impressions = stats.impressions || '0';
-            // البحث عن المبيعات (نفرض أن نوع الأكشن هو 'purchase')
-            const actions = stats.actions ? (stats.actions.find(a => a.action_type === 'offsite_conversion.fb_pixel_purchase') || { value: 0 }).value : 0;
-            const cpc = parseFloat(stats.cpc || '0').toFixed(3);
-            const campaignName = clientCampaigns.rows.find(r => r.campaign_id === stats.campaign_id)?.campaign_alias || stats.campaign_name || "اسم الحملة غير متوفر";
-
-            totalSpend += spend;
-            totalActions += parseInt(actions);
-            
-            replyParts.push(`
-            *#${campaignName}*
-            💰 الإنفاق: ${spend.toFixed(2)} ${DEFAULT_CURRENCY}
-            👁️ الظهور: ${impressions}
-            💸 تكلفة النقرة: ${cpc} ${DEFAULT_CURRENCY}
-            🛒 المبيعات: ${actions || '0'}
-            `);
-        });
-
-        const avgCPA = totalActions > 0 ? (totalSpend / totalActions).toFixed(2) : 'N/A';
-        
-        let finalReply = `
-        📊 **تقرير الأداء الموحد (الأمس: ${insightsData[0]?.date_start || 'N/A'})**
-        ---
-        **ملخص الأداء:**
-        💵 **إجمالي الإنفاق:** ${totalSpend.toFixed(2)} ${DEFAULT_CURRENCY}
-        🛍️ **إجمالي المبيعات:** ${totalActions}
-        🎯 **متوسط تكلفة المبيعة (CPA):** ${avgCPA} ${DEFAULT_CURRENCY}
-        ---
-        **إحصائيات الحملات الإعلانية:**
-        ${replyParts.join('\n')}
-        `;
-        
-        bot.sendMessage(chatId, finalReply, { parse_mode: "Markdown" });
-        
-    } catch (error) {
-        console.error("Error in /stats:", error);
-        bot.sendMessage(chatId, `❌ حدث خطأ غير متوقع أثناء جلب البيانات: ${error.message}`);
-    }
-});
-
-
-// ------------------------------------------------------------------
-// 6.2. أوامر العميل (الرصيد والإيداعات)
-// ------------------------------------------------------------------
-
-bot.onText(/💰 الرصيد والمصروفات|\/balance/, async (msg) => {
-    const chatId = msg.chat.id.toString();
-    logActivity(chatId, '/balance');
-    
-    if (!isDbConnected) {
-         return bot.sendMessage(chatId, "❌ نظام قاعدة البيانات غير جاهز حالياً.");
-    }
-    
-    // 1. حساب إجمالي الودائع
-    const depositResult = await dbClient.query(
-        `SELECT SUM(amount) AS total_deposit FROM deposits WHERE telegram_id = $1`,
-        [chatId]
+  // 🟢 Active Compa
+  if (matchBtn(text, '📢 Active Compa')) {
+    const res = await dbClient.query(
+      `SELECT campaign_id, campaign_alias FROM clients WHERE telegram_id = $1`,
+      [chatId]
     );
-    const totalDeposit = parseFloat(depositResult.rows[0].total_deposit || '0');
-    
-    // 2. حساب إجمالي الإنفاق (للتجربة، مؤقتًا صفر)
-    let totalSpend = 0; 
-
-    const remainingBalance = totalDeposit - totalSpend;
-    
-    // تحديد الحالة اللونية
-    let statusEmoji, statusText;
-    const lowThreshold = totalDeposit * 0.20; 
-    const criticalThreshold = totalDeposit * 0.05; 
-
-    if (remainingBalance <= criticalThreshold || remainingBalance < 0) {
-        statusEmoji = '🔴';
-        statusText = ' (خطر! يرجى الإيداع فوراً)';
-    } else if (remainingBalance <= lowThreshold) {
-        statusEmoji = '🟠';
-        statusText = ' (تنبيه: الرصيد بدأ ينفد)';
-    } else {
-        statusEmoji = '✅';
-        statusText = ' (الرصيد آمن)';
-    }
-
-    const reply = `
-    💳 **تقرير الرصيد:**
-    
-    💵 **إجمالي الودائع:** ${totalDeposit.toFixed(2)} ${DEFAULT_CURRENCY}
-    💸 **إجمالي المصروفات:** ${totalSpend.toFixed(2)} ${DEFAULT_CURRENCY}
-    ---
-    💰 **الرصيد المتبقي:** ${statusEmoji} ${remainingBalance.toFixed(2)} ${DEFAULT_CURRENCY} ${statusText}
-    
-    *لمعرفة تفاصيل الإيداعات، اضغط على زر "سجل الإيداعات".*
-    `;
-    
-    bot.sendMessage(chatId, reply, { parse_mode: "Markdown" });
-});
-
-bot.onText(/🧾 سجل الإيداعات|\/deposits_history/, async (msg) => {
-    const chatId = msg.chat.id.toString();
-    logActivity(chatId, '/deposits_history');
-    
-    if (!isDbConnected) {
-         return bot.sendMessage(chatId, "❌ نظام قاعدة البيانات غير جاهز.");
-    }
-
-    const depositResult = await dbClient.query(
-        `SELECT amount, deposit_date, currency FROM deposits WHERE telegram_id = $1 ORDER BY deposit_date DESC`,
-        [chatId]
-    );
-    
-    if (depositResult.rows.length === 0) {
-        return bot.sendMessage(chatId, "⚠️ لا توجد إيداعات مسجلة في نظامك حتى الآن.");
-    }
-    
-    let replyParts = ["🧾 **سجل الإيداعات الخاص بك:**\n"];
-    let totalDeposit = 0;
-    
-    depositResult.rows.forEach(row => {
-        const date = new Date(row.deposit_date).toLocaleDateString('ar-DZ'); 
-        replyParts.push(`*بتاريخ ${date}:* 💰 ${parseFloat(row.amount).toFixed(2)} ${row.currency}`);
-        totalDeposit += parseFloat(row.amount);
-    });
-
-    replyParts.push("---");
-    replyParts.push(`**الإجمالي الكلي للودائع:** ${totalDeposit.toFixed(2)} ${DEFAULT_CURRENCY}`);
-    
-    bot.sendMessage(chatId, replyParts.join('\n'), { parse_mode: "Markdown" });
-});
-
-
-// ------------------------------------------------------------------
-// 6.3. أوامر المدير (الإدارة)
-// ------------------------------------------------------------------
-
-bot.onText(/👑 قائمة العملاء|\/admin_menu/, (msg) => {
-    const chatId = msg.chat.id.toString();
-    if (chatId !== ADMIN_ID) {
-        return bot.sendMessage(chatId, "❌ هذا الأمر مخصص للمدير فقط.");
-    }
-    logActivity(chatId, '/admin_menu');
-    bot.sendMessage(chatId, "لوحة تحكم المدير:", adminKeyboard);
-});
-
-// تسجيل عميل وحملة
-bot.onText(/➕ تسجيل عميل\/حملة|\/register (.+) (.+) (.+)/, async (msg, match) => {
-    const chatId = msg.chat.id.toString();
-    if (chatId !== ADMIN_ID) return;
-    
-    const [targetTelegramId, campaignId, alias] = match ? [match[1], match[2], match[3]] : [];
-
-    if (!match) {
-        return bot.sendMessage(chatId, `
-        ℹ️ **لتسجيل عميل بحملة (Campaign ID):**
-        استخدم الصيغة: \`/register <Telegram ID> <Campaign ID> <Alias>\`
-        
-        مثال: \`/register 12345678 238541...98 حملة_رمضان\`
-        `);
-    }
-
-    try {
-        await dbClient.query(
-            `INSERT INTO clients (telegram_id, campaign_id, campaign_alias) VALUES ($1, $2, $3) ON CONFLICT (telegram_id, campaign_id) DO UPDATE SET campaign_alias = $3`,
-            [targetTelegramId, campaignId, alias]
-        );
-        
-        bot.sendMessage(chatId, `✅ تم ربط العميل ID (${targetTelegramId}) بـ Campaign ID:\n*${campaignId}*\nباسم مستعار: *${alias}*`, { parse_mode: "Markdown" });
-        
-    } catch (error) {
-        console.error("Error registering client:", error);
-        bot.sendMessage(chatId, `❌ فشل في تسجيل الحملة: ${error.message}`);
-    }
-});
-
-// إضافة إيداع للعميل 
-bot.onText(/💰 إضافة إيداع|\/deposit (.+) (.+)/, async (msg, match) => {
-    const chatId = msg.chat.id.toString();
-    if (chatId !== ADMIN_ID) return;
-
-    const [targetTelegramId, amount] = match ? [match[1], match[2]] : [];
-
-    if (!match || isNaN(parseFloat(amount))) {
-        return bot.sendMessage(chatId, `
-        ℹ️ **لإضافة إيداع لعميل:**
-        استخدم الصيغة: \`/deposit <Telegram ID> <المبلغ>\`
-        
-        مثال: \`/deposit 12345678 60000\`
-        `);
-    }
-
-    try {
-        await dbClient.query(
-            `INSERT INTO deposits (telegram_id, amount, currency) VALUES ($1, $2, $3)`,
-            [targetTelegramId, parseFloat(amount), DEFAULT_CURRENCY]
-        );
-        
-        bot.sendMessage(chatId, `✅ تم إضافة إيداع ${amount} ${DEFAULT_CURRENCY} بنجاح للعميل ID: *${targetTelegramId}*`, { parse_mode: "Markdown" });
-        
-    } catch (error) {
-        console.error("Error adding deposit:", error);
-        bot.sendMessage(chatId, `❌ فشل في تسجيل الإيداع: ${error.message}`);
-    }
-}); 
-
-// ------------------------------------------------------------------
-// 7. إعداد الـ Webhook وفتح المنفذ
-// ------------------------------------------------------------------
-app.post(`/bot${token}`, (req, res) => {
-  bot.processUpdate(req.body);
-  res.sendStatus(200); 
-});
-
-app.listen(port, () => {
-    if (externalUrl) {
-        // يتم تعيين الـ Webhook عند بدء التشغيل
-        bot.setWebHook(`${externalUrl}/bot${token}`);
-    }
-    console.log(`✅ البوت شغال ويستمع على المنفذ ${port} والـ Webhook مضبوط.`);
-
-});
+    if (res.rows.length === 0)
+      return bot.sendMessage(chatId, "⚠️ Aucune campagne trouvée pour votre compte.");
+    const lines = res.rows.map((r, i) => `#${i+1} • ${r.campaign_alias ?? 'Sans nom'}\nID: \`${r.campaign_id}\``);
+    bot.sendMessage(chatId, `📢 **Vos campagnes actives :**\n\
