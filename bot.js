@@ -83,3 +83,47 @@ app.listen(port, async () => {
     }
   }
 });
+
+// ===================================================
+// 🔹 Gestion des boutons du client
+// ===================================================
+
+// Active Compa
+bot.onText(/Active Compa/, (msg) => {
+  bot.sendMessage(msg.chat.id, "📢 Liste des campagnes actives :\n- Campagne 1\n- Campagne 2");
+});
+
+// Statistiques
+bot.onText(/Statistiques/, (msg) => {
+  bot.sendMessage(msg.chat.id, "📊 Statistiques avancées :\n- Clics : 1234\n- CTR : 3.2%");
+});
+
+// Paiements
+bot.onText(/Paiements/, (msg) => {
+  bot.sendMessage(msg.chat.id, "💳 Historique des paiements :\n- 01/11/2025 : 40.000 DZD\n- 05/11/2025 : 60.000 DZD");
+});
+
+// Versements
+bot.onText(/Versements/, (msg) => {
+  bot.sendMessage(msg.chat.id, "🧾 Aucun versement en attente actuellement ✅");
+});
+
+// EUR / DZD
+bot.onText(/EUR \/ DZD/, async (msg) => {
+  // جلب السعر من قاعدة البيانات أو متغير ثابت مؤقتًا
+  const rate = 280;
+  bot.sendMessage(msg.chat.id, `💱 Taux du jour :\n1 EUR = ${rate} DZD 🇩🇿💶`);
+});
+
+// Contact
+bot.onText(/Contact/, (msg) => {
+  const contactButtons = {
+    reply_markup: {
+      inline_keyboard: [
+        [{ text: "📞 Appel direct", url: "tel:+213552444977" }],
+        [{ text: "💬 WhatsApp", url: "https://wa.me/213552444977" }]
+      ],
+    },
+  };
+  bot.sendMessage(msg.chat.id, "📞 Choisissez votre moyen de contact :", contactButtons);
+});
