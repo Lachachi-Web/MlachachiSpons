@@ -7,7 +7,7 @@ const { Client } = pkg;
 // 🔹 إعداد المتغيرات الأساسية
 // ===================================================
 const token = process.env.TELEGRAM_TOKEN;
-const port = process.env.PORT || 3000;   // ✅ لازم PORT مش 8080
+const port = process.env.PORT || 8080;   // ✅ لازم PORT مش 8080
 const externalUrl = process.env.RAILWAY_STATIC_URL;
 const ADMIN_ID = "1621781485";
 const DEFAULT_CURRENCY = "DZD";
@@ -81,3 +81,4 @@ app.listen(port, async () => {
 
   console.log(`✅ Bot actif sur le port ${port}`);
 });
+
